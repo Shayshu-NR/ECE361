@@ -11,7 +11,7 @@ int main(int argc, char const *argv[])
     int socket_disc;
     int bind;
     struct protoent *udp_protocol;
-    struct sockaddr server_address;
+    struct sockaddr_in server_address;
 
     // We need a UDF listening port...
     if (argc != 2)
@@ -27,11 +27,22 @@ int main(int argc, char const *argv[])
     udp_protocol = getprotobyname("udp");
     socket_disc = socket(AF_INET, SOCK_DGRAM, udp_protocol->p_proto);
     if(socket_disc < 0){
-        fprintf(stderr, "Error occured when getting socket discriptor");
+        fprintf(stderr, "Error occured when getting socket discriptor\n");
         return 0;
     }
 
-    // Bind the socket to the requested port
-    memset(&server_address, 0, sizeof(server_address));
-    server_address.
+    // Bind the socket to the requested port (This method is OLD!)
+    memset(server_address.sin_zero, '\0', sizeof(server_address.sin_zero));
+    server_address.sin_family = AF_INET;
+    server_address.sin_port = htons(port);
+    server_address.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    bind = bind(socket_disc, (struct sockaddr *)&server_address, sizeof(server_address));
+    if (bind < 0){
+        fprinf(stderr, "Error occured when binding the socket\n");
+        return 0;
+    }
+
+    // Now wait to receive a message from the client
+    
 }
