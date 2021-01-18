@@ -13,9 +13,10 @@ int main(int argc, char const *argv[])
     int binded;
     int buffer_size = 100;
     char buffer[buffer_size];
+    char * message;
     struct protoent *udp_protocol;
     struct sockaddr_in server_address;
-    struct sockaddr_in client_address;
+    struct sockaddr_storage client_address;
     int client_length;
 
 
@@ -57,5 +58,19 @@ int main(int argc, char const *argv[])
     }
 
     // Now check if the received message stored in the buffer says 'ftp'
-    printf("Message received: %s\n", buffer);
+    if(strcmp("ftp", buffer) != 0){
+        message = "no";
+    }
+    else{
+        message = "yes";
+    }
+
+    printf("Message received: %s %s\n", buffer, message);
+
+    if(sendto(socket_disc, message, strlen(message), MSG_CONFIRM, (struct sockaddr *)&client_address, client_length) < 0){
+        fprintf(stderr, "Failed to send response\n");
+        return 0;
+    }
+
+    shutdown(socket_disc, 2);
 }
