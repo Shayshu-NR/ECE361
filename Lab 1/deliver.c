@@ -15,6 +15,7 @@ int main(int argc, char const *argv[])
     int socket_disc;
     int buffer_size = 100;
     char ftp_filename[buffer_size];
+    char *message = "ftp";
     struct protoent *udp_protocol;
     struct sockaddr_in client_address, server_address;
 
@@ -29,6 +30,9 @@ int main(int argc, char const *argv[])
     port = atoi(argv[2]);
 
     // Get the server address in dot-and-number format
+    memset((char *)&server_address, 0, sizeof(server_address));
+    server_address.sin_family = AF_INET;
+    server_address.sin_port = htons(port);
     if (inet_aton(argv[1], &server_address.sin_addr) < 0)
     {
         fprintf(stderr, "Failed to convert server address to dot and number format\n");
@@ -61,7 +65,13 @@ int main(int argc, char const *argv[])
         }
     }
     else{
-        printf("Usage: ftp <file name>");
+        printf("Usage: ftp <file name>\n");
+        return 0;
+    }
+
+    // Now send a message to the server
+    if(sendto(socket_disc, message, strlen(message), 0, (struct sockaddr *)&server_address, sizeof(server_address)) < 0){
+        fprintf(stderr, "Failed to send packet\n");
         return 0;
     }
 }

@@ -15,7 +15,7 @@ int main(int argc, char const *argv[])
     char buffer[buffer_size];
     struct protoent *udp_protocol;
     struct sockaddr_in server_address;
-    struct sockaddr_storage client_address;
+    struct sockaddr_in client_address;
     int client_length;
 
 
@@ -50,6 +50,7 @@ int main(int argc, char const *argv[])
     }
 
     // Now wait to receive a message from the client
+    memset(buffer, 0, sizeof(buffer));
     if(recvfrom(socket_disc, buffer, buffer_size, 0, (struct sockaddr*)&client_address, &client_length) < 0){
         fprintf(stderr, "Error when receiving data\n");
         return 0;
