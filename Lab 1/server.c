@@ -3,15 +3,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <netdb.h>
+#include <string.h>
 
 int main(int argc, char const *argv[])
 {
 
     int port;
     int socket_disc;
-    int bind;
+    int binded;
+    int buffer_size = 100;
+    char buffer[buffer_size];
     struct protoent *udp_protocol;
     struct sockaddr_in server_address;
+    struct sockaddr_storage client_address;
+    int client_length;
+
 
     // We need a UDF listening port...
     if (argc != 2)
@@ -25,7 +31,7 @@ int main(int argc, char const *argv[])
 
     // Open a DGRAM socket discriptor
     udp_protocol = getprotobyname("udp");
-    socket_disc = socket(AF_INET, SOCK_DGRAM, udp_protocol->p_proto);
+    socket_disc = socket(PF_INET, SOCK_DGRAM, udp_protocol->p_proto);
     if(socket_disc < 0){
         fprintf(stderr, "Error occured when getting socket discriptor\n");
         return 0;
@@ -37,12 +43,18 @@ int main(int argc, char const *argv[])
     server_address.sin_port = htons(port);
     server_address.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    bind = bind(socket_disc, (struct sockaddr *)&server_address, sizeof(server_address));
-    if (bind < 0){
-        fprinf(stderr, "Error occured when binding the socket\n");
+    binded = bind(socket_disc, (struct sockaddr *)&server_address, sizeof(server_address));
+    if (binded < 0){
+        fprintf(stderr, "Error occured when binding the socket\n");
         return 0;
     }
 
     // Now wait to receive a message from the client
-    
+    if(recvfrom(socket_disc, buffer, buffer_size, 0, (struct sockaddr*)&client_address, &client_length) < 0){
+        fprintf(stderr, "Error when receiving data\n");
+        return 0;
+    }
+
+    // Now check if the received message stored in the buffer says 'ftp'
+    printf("Message received: %s\n", buffer);
 }
