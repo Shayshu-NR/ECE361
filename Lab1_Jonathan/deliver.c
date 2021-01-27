@@ -29,7 +29,7 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-FILE* open_file (){
+FILE* open_file (char* file_name_short){
     char user_input[USER_INPUT_LENGTH];
     printf("Enter: ftp <filename>\n");
     fgets(user_input,USER_INPUT_LENGTH, stdin);
@@ -37,10 +37,10 @@ FILE* open_file (){
         fprintf(stderr,"usage: ftp <filename>\n");
         exit(1);
     }
-    char* file_name_short = user_input+4;
+    strcpy(file_name_short,user_input+4);
     file_name_short[strlen(file_name_short)-1]='\0';
     FILE * fp;
-    fp = fopen(file_name_short, "r");
+    fp = fopen(file_name_short, "rb");
     if(fp == NULL) {
         perror("Error opening file");
         exit(-1);
@@ -127,11 +127,38 @@ void receive_message(int *sockfd, char* buf, int* numbytes){
 }
 
 void get_file_info(FILE *fp, struct packet* next_packet){
-    
+    fseek(fp, 0L, SEEK_END);
+    int size = ftell(fp);
+    rewind(fp);
+    next_packet->total_frag = size/1000;
+    if (size%1000>0){
+        next_packet->total_frag+=1;
+    }
+    //printf("Size:%d\n", size);
+}   
+
+void get_next_data(FILE *fp, struct packet* next_packet) {
+    if (next_packet->frag_no!=next_packet->total_frag){
+        int bytes_read = fread(next_packet->filedata,1000,1,fp)*1000;
+        //printf("Bytes read:%d\n", bytes_read);
+        next_packet->size = bytes_read;
+    } else {
+        int start_pos = ftell(fp);
+        fread(next_packet->filedata,1000,1,fp);
+        int bytes_read = ftell(fp)-start_pos;
+        //printf("Bytes read:%d\n", bytes_read);
+        next_packet->size = bytes_read;
+    }
 }
 
-void get_next_packet(FILE *fp, struct packet* next_packet) {
-
+int packet_to_string(char* packet_string, struct packet* next_packet){
+    char temp[100], temp2[100], temp3[100];
+    sprintf(packet_string, "%d:%d:%d:%s:", next_packet->total_frag,next_packet->frag_no,next_packet->size,next_packet->filename);
+    int str_size = strlen(packet_string);
+    memcpy(packet_string+strlen(packet_string),next_packet->filedata,next_packet->size);
+    str_size+=next_packet->size;
+    packet_string[str_size]='\0';
+    return str_size;
 }
 
 int main (int argc, char *argv[]) {
@@ -142,14 +169,12 @@ int main (int argc, char *argv[]) {
     if ((argc>3)&&(strcmp((argv[3]), "-v")==0)){
         verbose = true;
     }
+    
     char* server_add = argv[1];
     char* server_port = argv[2];
+    char file_name_short[USER_INPUT_LENGTH]; 
+    FILE *fp = open_file(file_name_short);
 
-    FILE *fp = open_file ();
-    
-    //read from file
-    fclose(fp);
-    
     int sockfd;
     struct addrinfo hints, *servinfo, *clientinfo, *cp;  
     
@@ -177,11 +202,42 @@ int main (int argc, char *argv[]) {
     }
 
     struct packet next_packet;
+    next_packet.filename = malloc((strlen(file_name_short)+1)*sizeof(char));
+    strcpy(next_packet.filename,file_name_short);
     get_file_info(fp,&next_packet);
-    get_next_packet(fp,&next_packet);
 
-    freeaddrinfo(servinfo);
-    freeaddrinfo(clientinfo);
-    close(sockfd);
+    for (int i=0; i<next_packet.total_frag; i++){
+        next_packet.frag_no=i+1;
+        get_next_data(fp,&next_packet);
+        int str_size = 2000;
+        char* packet_string = malloc(str_size);
+        packet_string[0]='\0';
+        str_size = packet_to_string(packet_string,&next_packet);
+        if(verbose){
+            printf("Str size:%d, %s\n", str_size, packet_string);
+        }
+        send_message (server_add,&sockfd,packet_string,servinfo,cp,&numbytes);
+        if (numbytes!=str_size){
+            fprintf(stderr, "Sent bytes different from str length\n");
+            return (1);
+        }
+        receive_message(&sockfd,buf,&numbytes);
+        if (strcmp(buf,"ACK")!=0){
+            fprintf(stderr, "No ACK received\n");
+            return (1);
+        }
+        if (verbose){
+            printf("ACK received\n");
+        }
+        free(packet_string);
+    }
+    if (verbose){
+        printf("File transfer complete\n");
+    }
+    fclose(fp);
+    free(next_packet.filename);
+    // freeaddrinfo(servinfo);
+    // freeaddrinfo(clientinfo);
+    // close(sockfd);
     return 0;
 }

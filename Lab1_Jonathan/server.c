@@ -12,7 +12,7 @@
 #include <stdbool.h>
 #include "packet.h"
 
-#define MAXBUFLEN 100
+#define MAXBUFLEN 2000
 
 bool verbose = false;
 
@@ -24,6 +24,7 @@ void *get_in_addr(struct sockaddr *sa)
     }
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
+
 
 void create_listen_socket(char* server_port, int* sockfd, struct addrinfo* hints, struct addrinfo** servinfo, struct addrinfo** p){
     int rv;
@@ -113,6 +114,14 @@ void send_message(int* client_sockfd, char* message, struct addrinfo* sp, int* n
     }
 }
 
+int decode_string(const char* string, char** next_seg){
+    char* delim_pos = strpbrk(string,":");
+    char num[100];
+    strncpy(num,string,delim_pos-string);
+    *next_seg = delim_pos+1;
+    return atoi(num);
+}
+
 int main (int argc, char *argv[]) {
     if (argc < 2){
         fprintf(stderr,"usage: server <UDP listen port>\n");
@@ -145,7 +154,43 @@ int main (int argc, char *argv[]) {
     create_talking_socket(s,&client_sockfd,&hints,&their_addr,&clientinfo,&sp);
 
     send_message(&client_sockfd,message,sp,&numbytes,s);
+    
+    int total_frags, current_frag=0;
+    FILE* new_file;
+    while (true){
+        receive_message(&sockfd,buf,&numbytes,&their_addr,&addr_len, s);
+        char* next_seg;
+        total_frags = decode_string(buf, &next_seg);
+        int new_frag_no = decode_string(next_seg, &next_seg);
+        int frag_size = decode_string(next_seg, &next_seg);
+        if (new_frag_no==current_frag+1){
+            current_frag = new_frag_no;
+            strcpy(message, "ACK");
+            if (current_frag==1){
+                char* delim_pos = strpbrk(next_seg,":");
+                char filename[100];
+                strncpy(filename,next_seg,delim_pos-next_seg);
+                next_seg = delim_pos+1;
+                new_file = fopen(filename, "w+b");
+                if(new_file == NULL) {
+                    perror("Error opening file");
+                    exit(-1);
+                }
+                if (verbose){
+                    printf("File created: %s\n", filename);
+                }
+            }
 
+        } else {
+            strcpy(message, "NACK");
+        }
+        fwrite(next_seg,frag_size, 1, new_file);
+        send_message(&client_sockfd,message,sp,&numbytes,s);
+        if (current_frag==total_frags){
+            break;
+        }
+    }
+    fclose(new_file);
     freeaddrinfo(servinfo);
     freeaddrinfo(clientinfo);
     close(client_sockfd);
