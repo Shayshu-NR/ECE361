@@ -10,9 +10,14 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <stdbool.h>
+#include <time.h>
+#include <sys/time.h>
 
 #define USER_INPUT_LENGTH 100
 #define MAXBUFLEN 100
+
+bool verbose = false;
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
@@ -24,9 +29,12 @@ void *get_in_addr(struct sockaddr *sa)
 }
 
 int main (int argc, char *argv[]) {
-    if (argc != 3){
+    if (argc < 3){
         fprintf(stderr,"usage: deliver <server address><server port number>\n");
         exit(1);
+    }
+    if ((argc>3)&&(strcmp((argv[3]), "-v")==0)){
+        verbose = true;
     }
     char* server_add = argv[1];
     char* server_port = argv[2];
@@ -50,8 +58,8 @@ int main (int argc, char *argv[]) {
     fclose(fp);
     
     char* message = "ftp";
-    int send_sockfd, receive_sockfd;
-    struct addrinfo hints, *servinfo, *clientinfo, *sp, *cp;
+    int sockfd;
+    struct addrinfo hints, *servinfo, *clientinfo, *cp;
     int rv;
     int numbytes;
     memset(&hints, 0, sizeof hints);
@@ -62,7 +70,7 @@ int main (int argc, char *argv[]) {
         return 1;
     }
 
-    char* client_port = "10000";
+    char* client_port = "52520";
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_INET; // set to AF_INET to force IPv4
     hints.ai_socktype = SOCK_DGRAM;
@@ -73,68 +81,76 @@ int main (int argc, char *argv[]) {
     }
 
     // loop through all the results and make a socket
-    for(sp = servinfo; sp != NULL; sp = sp->ai_next) {
-        if ((send_sockfd = socket(sp->ai_family, sp->ai_socktype,
-            sp->ai_protocol)) == -1) {
-            perror("talker: socket");
-            continue;
-        }
-            break;
-    }
-    if (sp == NULL) {
-        fprintf(stderr, "talker: failed to create socket\n");
-        return 2;
-    }
-
-    // loop through all the results and make a socket
     for(cp = clientinfo; cp != NULL; cp = cp->ai_next) {
-        if ((receive_sockfd = socket(cp->ai_family, cp->ai_socktype,
+        if ((sockfd = socket(cp->ai_family, cp->ai_socktype,
         cp->ai_protocol)) == -1) {
-            perror("listener: socket");
+            perror("client: socket");
             continue;
         }
-        if (bind(receive_sockfd, cp->ai_addr, cp->ai_addrlen) == -1) {
-            close(receive_sockfd);
-            perror("listener: bind");
+        if (bind(sockfd, cp->ai_addr, cp->ai_addrlen) == -1) {
+            close(sockfd);
+            perror("client: bind");
             continue;
         }
         break;
     }
 
     if (cp == NULL) {
-        fprintf(stderr, "listener: failed to bind socket\n");
+        fprintf(stderr, "client: failed to bind socket\n");
         return 2;
     }
     
-    if ((numbytes = sendto(send_sockfd, message, strlen(message), 0,
-        sp->ai_addr, sp->ai_addrlen)) == -1) {
+    long timer_start, timer_end;
+    struct timeval timecheck;
+
+    gettimeofday(&timecheck, NULL);
+    timer_start = (long)timecheck.tv_sec * 1000000 + (long)timecheck.tv_usec ;
+
+
+    if ((numbytes = sendto(sockfd, message, strlen(message), 0,
+        servinfo->ai_addr, servinfo->ai_addrlen)) == -1) {
         perror("talker: sendto");
         exit(1);
     }
-    printf("talker: sent %d bytes to %s:%hu\n", numbytes, server_add,ntohs(((struct sockaddr_in *)(sp->ai_addr))->sin_port));
-
-    printf("sent from: %hu\n", ntohs(((struct sockaddr_in *)(cp->ai_addr))->sin_port));
+    if (verbose){
+        printf("talker: sent %d bytes to %s:%hu\n", numbytes, server_add,ntohs(((struct sockaddr_in *)(servinfo->ai_addr))->sin_port));
+        printf("sent from: %hu\n", ntohs(((struct sockaddr_in *)(cp->ai_addr))->sin_port));
+    }
     
     struct sockaddr_storage their_addr;
     char buf[MAXBUFLEN];
     socklen_t addr_len;
     char s[INET6_ADDRSTRLEN];
-
-    printf("listener: waiting to recvfrom...\n");
+    if (verbose){
+        printf("listener: waiting to recvfrom...\n");
+    }
     addr_len = sizeof (their_addr);
-    if ((numbytes = recvfrom(receive_sockfd, buf, MAXBUFLEN-1 , 0,
+    if ((numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1 , 0,
     (struct sockaddr *)&their_addr, &addr_len)) == -1) {
         perror("recvfrom");
         exit(1);
-    }  
-    printf("listener: got packet from %s\n",
-    inet_ntop(their_addr.ss_family,
-    get_in_addr((struct sockaddr *)&their_addr),
-    s, sizeof s));
-    printf("listener: packet is %d bytes long\n", numbytes);
+    }
+
+    gettimeofday(&timecheck, NULL);
+    timer_end = (long)timecheck.tv_sec * 1000000 + (long)timecheck.tv_usec;
+
+    printf("Roundtrip time: %ldus\n", (timer_end-timer_start));
+
     buf[numbytes] = '\0';
-    printf("listener: packet contains \"%s\"\n", buf);
-    close(send_sockfd);
-    close(receive_sockfd);
+    if (verbose){
+        printf("listener: got packet from %s:%hu\n",
+        inet_ntop(their_addr.ss_family,
+        get_in_addr((struct sockaddr *)&their_addr),
+        s, sizeof s), ntohs(((struct sockaddr_in *)&their_addr)->sin_port));
+        printf("listener: packet is %d bytes long\n", numbytes);
+        printf("listener: packet contains \"%s\"\n", buf);
+    }
+    
+    if (strcmp(buf,"yes")==0){
+        printf("A file tranfer can start.\n");
+    }
+    freeaddrinfo(servinfo);
+    freeaddrinfo(clientinfo);
+    close(sockfd);
     return 0;
 }

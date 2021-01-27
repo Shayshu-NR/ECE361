@@ -9,9 +9,12 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <stdbool.h>
+
 
 #define MAXBUFLEN 100
 
+bool verbose = false;
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
@@ -23,13 +26,16 @@ void *get_in_addr(struct sockaddr *sa)
 }
 
 int main (int argc, char *argv[]) {
-    if (argc != 2){
+    if (argc < 2){
         fprintf(stderr,"usage: server <UDP listen port>\n");
         exit(1);
     }
+    if ((argc>2)&&(strcmp((argv[2]), "-v")==0)){
+        verbose = true;
+    }
     char* server_port = argv[1];
     int sockfd;
-    struct addrinfo hints, *servinfo, *p;
+    struct addrinfo hints, *servinfo, *clientinfo, *p, *sp;
     int rv;
     int numbytes;
     struct sockaddr_storage their_addr;
@@ -62,22 +68,24 @@ int main (int argc, char *argv[]) {
         fprintf(stderr, "listener: failed to bind socket\n");
         return 2;
     }
-    freeaddrinfo(servinfo);
-
-    printf("listener: waiting to recvfrom...\n");
+    if (verbose){
+        printf("listener: waiting to recvfrom...\n");
+    }
     addr_len = sizeof (their_addr);
     if ((numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1 , 0,
     (struct sockaddr *)&their_addr, &addr_len)) == -1) {
         perror("recvfrom");
         exit(1);
     }  
-    printf("listener: got packet from %s:%hu\n",
-    inet_ntop(their_addr.ss_family,
-    get_in_addr((struct sockaddr *)&their_addr),
-    s, sizeof s), ntohs(((struct sockaddr_in *)&their_addr)->sin_port));
-    printf("listener: packet is %d bytes long\n", numbytes);
     buf[numbytes] = '\0';
-    printf("listener: packet contains \"%s\"\n", buf);
+    inet_ntop(their_addr.ss_family,get_in_addr((struct sockaddr *)&their_addr),
+        s, sizeof s);
+    if (verbose){
+        printf("listener: got packet from %s:%hu\n",
+        s, ntohs(((struct sockaddr_in *)&their_addr)->sin_port));
+        printf("listener: packet is %d bytes long\n", numbytes);
+        printf("listener: packet contains \"%s\"\n", buf);
+    }
 
     char message[100];
     if (strcmp(buf,"ftp")==0){
@@ -93,30 +101,34 @@ int main (int argc, char *argv[]) {
     char* client_add = s;
     char client_port [100];
     sprintf(client_port,"%hu",ntohs(((struct sockaddr_in *)&their_addr)->sin_port));
-    if ((rv = getaddrinfo(client_add, client_port, &hints, &servinfo)) != 0) {
+    if ((rv = getaddrinfo(client_add, client_port, &hints, &clientinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return 1;
     }
     // loop through all the results and make a socket
-    for(p = servinfo; p != NULL; p = p->ai_next) {
-        if ((client_sockfd = socket(p->ai_family, p->ai_socktype,
-        p->ai_protocol)) == -1) {
+    for(sp = clientinfo; sp != NULL; sp = sp->ai_next) {
+        if ((client_sockfd = socket(sp->ai_family, sp->ai_socktype,
+        sp->ai_protocol)) == -1) {
             perror("talker: socket");
             continue;
         }
         break;
     }
-    if (p == NULL) {
+    if (sp == NULL) {
         fprintf(stderr, "talker: failed to create socket\n");
         return 2;
     }
     if ((numbytes = sendto(client_sockfd, message, strlen(message), 0,
-        p->ai_addr, p->ai_addrlen)) == -1) {
+        sp->ai_addr, sp->ai_addrlen)) == -1) {
         perror("talker: sendto");
         exit(1);
     }
-    printf("talker: sent %d bytes to %s:%s\n", numbytes, client_add,ntohs(((struct sockaddr_in *)(p->ai_addr))->sin_port));
+    if (verbose){
+        printf("talker: sent %d bytes to %s:%hu\n", numbytes, client_add,ntohs(((struct sockaddr_in *)(sp->ai_addr))->sin_port));
+    }
+
     freeaddrinfo(servinfo);
+    freeaddrinfo(clientinfo);
     close(client_sockfd);
     close(sockfd);
     return 0;
