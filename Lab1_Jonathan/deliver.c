@@ -50,8 +50,8 @@ int main (int argc, char *argv[]) {
     fclose(fp);
     
     char* message = "ftp";
-    int sockfd;
-    struct addrinfo hints, *servinfo, *p;
+    int send_sockfd, receive_sockfd;
+    struct addrinfo hints, *servinfo, *clientinfo, *sp, *cp;
     int rv;
     int numbytes;
     memset(&hints, 0, sizeof hints);
@@ -61,64 +61,68 @@ int main (int argc, char *argv[]) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return 1;
     }
-    // loop through all the results and make a socket
-    for(p = servinfo; p != NULL; p = p->ai_next) {
-        if ((sockfd = socket(p->ai_family, p->ai_socktype,
-        p->ai_protocol)) == -1) {
-            perror("talker: socket");
-            continue;
-        }
-        break;
-    }
-    if (p == NULL) {
-        fprintf(stderr, "talker: failed to create socket\n");
-        return 2;
-    }
-    if ((numbytes = sendto(sockfd, message, strlen(message), 0,
-        p->ai_addr, p->ai_addrlen)) == -1) {
-        perror("talker: sendto");
-        exit(1);
-    }
-    freeaddrinfo(servinfo);
-    printf("talker: sent %d bytes to %s:%s\n", numbytes, server_add,server_port);
-    close(sockfd);
 
     char* client_port = "10000";
-    struct sockaddr_storage their_addr;
-    char buf[MAXBUFLEN];
-    socklen_t addr_len;
-    char s[INET6_ADDRSTRLEN];
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_INET; // set to AF_INET to force IPv4
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_flags = AI_PASSIVE; // use my IP
-    if ((rv = getaddrinfo(NULL, client_port, &hints, &servinfo)) != 0) {
+    if ((rv = getaddrinfo(NULL, client_port, &hints, &clientinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return 1;
     }
-    // loop through all the results and bind to the first we can
-    for(p = servinfo; p != NULL; p = p->ai_next) {
-        if ((sockfd = socket(p->ai_family, p->ai_socktype,
-            p->ai_protocol)) == -1) {
+
+    // loop through all the results and make a socket
+    for(sp = servinfo; sp != NULL; sp = sp->ai_next) {
+        if ((send_sockfd = socket(sp->ai_family, sp->ai_socktype,
+            sp->ai_protocol)) == -1) {
+            perror("talker: socket");
+            continue;
+        }
+            break;
+    }
+    if (sp == NULL) {
+        fprintf(stderr, "talker: failed to create socket\n");
+        return 2;
+    }
+
+    // loop through all the results and make a socket
+    for(cp = clientinfo; cp != NULL; cp = cp->ai_next) {
+        if ((receive_sockfd = socket(cp->ai_family, cp->ai_socktype,
+        cp->ai_protocol)) == -1) {
             perror("listener: socket");
             continue;
         }
-        if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-            close(sockfd);
+        if (bind(receive_sockfd, cp->ai_addr, cp->ai_addrlen) == -1) {
+            close(receive_sockfd);
             perror("listener: bind");
             continue;
         }
         break;
     }
-    if (p == NULL) {
+
+    if (cp == NULL) {
         fprintf(stderr, "listener: failed to bind socket\n");
         return 2;
     }
-    freeaddrinfo(servinfo);
+    
+    if ((numbytes = sendto(send_sockfd, message, strlen(message), 0,
+        sp->ai_addr, sp->ai_addrlen)) == -1) {
+        perror("talker: sendto");
+        exit(1);
+    }
+    printf("talker: sent %d bytes to %s:%hu\n", numbytes, server_add,ntohs(((struct sockaddr_in *)(sp->ai_addr))->sin_port));
+
+    printf("sent from: %hu\n", ntohs(((struct sockaddr_in *)(cp->ai_addr))->sin_port));
+    
+    struct sockaddr_storage their_addr;
+    char buf[MAXBUFLEN];
+    socklen_t addr_len;
+    char s[INET6_ADDRSTRLEN];
 
     printf("listener: waiting to recvfrom...\n");
     addr_len = sizeof (their_addr);
-    if ((numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1 , 0,
+    if ((numbytes = recvfrom(receive_sockfd, buf, MAXBUFLEN-1 , 0,
     (struct sockaddr *)&their_addr, &addr_len)) == -1) {
         perror("recvfrom");
         exit(1);
@@ -130,6 +134,7 @@ int main (int argc, char *argv[]) {
     printf("listener: packet is %d bytes long\n", numbytes);
     buf[numbytes] = '\0';
     printf("listener: packet contains \"%s\"\n", buf);
-    close(sockfd);
+    close(send_sockfd);
+    close(receive_sockfd);
     return 0;
 }

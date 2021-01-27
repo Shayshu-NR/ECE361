@@ -71,14 +71,13 @@ int main (int argc, char *argv[]) {
         perror("recvfrom");
         exit(1);
     }  
-    printf("listener: got packet from %s\n",
+    printf("listener: got packet from %s:%hu\n",
     inet_ntop(their_addr.ss_family,
     get_in_addr((struct sockaddr *)&their_addr),
-    s, sizeof s));
+    s, sizeof s), ntohs(((struct sockaddr_in *)&their_addr)->sin_port));
     printf("listener: packet is %d bytes long\n", numbytes);
     buf[numbytes] = '\0';
     printf("listener: packet contains \"%s\"\n", buf);
-    close(sockfd);
 
     char message[100];
     if (strcmp(buf,"ftp")==0){
@@ -87,18 +86,20 @@ int main (int argc, char *argv[]) {
         strcpy(message,"no");
     }
 
+    int client_sockfd;
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
-    char* server_add = s;
-    char* client_port = "10000";
-    if ((rv = getaddrinfo(server_add, client_port, &hints, &servinfo)) != 0) {
+    char* client_add = s;
+    char client_port [100];
+    sprintf(client_port,"%hu",ntohs(((struct sockaddr_in *)&their_addr)->sin_port));
+    if ((rv = getaddrinfo(client_add, client_port, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return 1;
     }
     // loop through all the results and make a socket
     for(p = servinfo; p != NULL; p = p->ai_next) {
-        if ((sockfd = socket(p->ai_family, p->ai_socktype,
+        if ((client_sockfd = socket(p->ai_family, p->ai_socktype,
         p->ai_protocol)) == -1) {
             perror("talker: socket");
             continue;
@@ -109,13 +110,14 @@ int main (int argc, char *argv[]) {
         fprintf(stderr, "talker: failed to create socket\n");
         return 2;
     }
-    if ((numbytes = sendto(sockfd, message, strlen(message), 0,
+    if ((numbytes = sendto(client_sockfd, message, strlen(message), 0,
         p->ai_addr, p->ai_addrlen)) == -1) {
         perror("talker: sendto");
         exit(1);
     }
+    printf("talker: sent %d bytes to %s:%s\n", numbytes, client_add,ntohs(((struct sockaddr_in *)(p->ai_addr))->sin_port));
     freeaddrinfo(servinfo);
-    printf("talker: sent %d bytes to %s:%s\n", numbytes, server_add,server_port);
+    close(client_sockfd);
     close(sockfd);
     return 0;
 }
