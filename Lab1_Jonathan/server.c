@@ -16,16 +16,6 @@
 
 bool verbose = false;
 
-// get sockaddr, IPv4 or IPv6:
-void *get_in_addr(struct sockaddr *sa)
-{
-    if (sa->sa_family == AF_INET) {
-        return &(((struct sockaddr_in*)sa)->sin_addr);
-    }
-    return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
-
-
 void create_listen_socket(char* server_port, int* sockfd, struct addrinfo* hints, struct addrinfo** servinfo, struct addrinfo** p){
     int rv;
     memset(hints, 0, sizeof (*hints));
@@ -56,13 +46,13 @@ void create_listen_socket(char* server_port, int* sockfd, struct addrinfo* hints
     }
 }
 
-void create_talking_socket(char* client_add, int* client_sockfd, struct addrinfo* hints, struct sockaddr_storage* their_addr, struct addrinfo** clientinfo, struct addrinfo** sp){
+void create_talking_socket(char* client_add, int* client_sockfd, struct addrinfo* hints, struct sockaddr_in* their_addr, struct addrinfo** clientinfo, struct addrinfo** sp){
     memset(hints, 0, sizeof (*hints));
     hints->ai_family = AF_INET;
     hints->ai_socktype = SOCK_DGRAM;
     char client_port [100];
     int rv;
-    sprintf(client_port,"%hu",ntohs(((struct sockaddr_in *)their_addr)->sin_port));
+    sprintf(client_port,"%hu",ntohs(their_addr->sin_port));
     if ((rv = getaddrinfo(client_add, client_port, hints, clientinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         exit(1);
@@ -82,24 +72,20 @@ void create_talking_socket(char* client_add, int* client_sockfd, struct addrinfo
     }
 }
 
-void receive_message(int *sockfd, char* buf, int* numbytes, struct sockaddr_storage* their_addr, socklen_t* addr_len, char* s){
-    if (verbose){
-        printf("listener: waiting to recvfrom...\n");
-    }
-    *addr_len = sizeof (*their_addr);
+void receive_message(int *sockfd, char* buf, int* numbytes, struct sockaddr_in* their_addr, socklen_t* addr_len, char* s){
+    printf("listener: waiting to recvfrom...\n");
+    *addr_len = sizeof (struct sockaddr_in);
     if ((*numbytes = recvfrom(*sockfd, buf, MAXBUFLEN-1 , 0,
     (struct sockaddr *)their_addr, addr_len)) == -1) {
         perror("recvfrom");
         exit(1);
     }  
     buf[*numbytes] = '\0';
-    inet_ntop(their_addr->ss_family,get_in_addr((struct sockaddr *)their_addr),
-        s, INET6_ADDRSTRLEN);
+    inet_ntop(their_addr->sin_family,&their_addr->sin_addr,s, INET_ADDRSTRLEN);
     if (verbose){
-        printf("listener: got packet from %s:%hu\n",
-        s, ntohs(((struct sockaddr_in *)their_addr)->sin_port));
+        printf("listener: got packet from %s:%hu\n",s, ntohs(their_addr->sin_port));
         printf("listener: packet is %d bytes long\n", *numbytes);
-        printf("listener: packet contains \"%s\"\n", buf);
+        //printf("listener: packet contains \"%s\"\n", buf);
     }
 }
 
@@ -118,6 +104,7 @@ int decode_string(const char* string, char** next_seg){
     char* delim_pos = strpbrk(string,":");
     char num[100];
     strncpy(num,string,delim_pos-string);
+    num[delim_pos-string]='\0';
     *next_seg = delim_pos+1;
     return atoi(num);
 }
@@ -137,7 +124,7 @@ int main (int argc, char *argv[]) {
     create_listen_socket(server_port,&sockfd,&hints,&servinfo,&p);
 
     int numbytes;
-    struct sockaddr_storage their_addr;
+    struct sockaddr_in their_addr;
     char buf[MAXBUFLEN];
     socklen_t addr_len;
     char s[INET6_ADDRSTRLEN];
@@ -159,18 +146,20 @@ int main (int argc, char *argv[]) {
     FILE* new_file;
     while (true){
         receive_message(&sockfd,buf,&numbytes,&their_addr,&addr_len, s);
+        //printf("Message received:%ld\n", strlen(buf));
         char* next_seg;
         total_frags = decode_string(buf, &next_seg);
         int new_frag_no = decode_string(next_seg, &next_seg);
         int frag_size = decode_string(next_seg, &next_seg);
+        char* delim_pos = strpbrk(next_seg,":");
+        char filename[100];
+        strncpy(filename,next_seg,delim_pos-next_seg);
+        filename[delim_pos-next_seg]='\0';
+        next_seg = delim_pos+1;
         if (new_frag_no==current_frag+1){
             current_frag = new_frag_no;
             strcpy(message, "ACK");
             if (current_frag==1){
-                char* delim_pos = strpbrk(next_seg,":");
-                char filename[100];
-                strncpy(filename,next_seg,delim_pos-next_seg);
-                next_seg = delim_pos+1;
                 new_file = fopen(filename, "w+b");
                 if(new_file == NULL) {
                     perror("Error opening file");
@@ -180,7 +169,6 @@ int main (int argc, char *argv[]) {
                     printf("File created: %s\n", filename);
                 }
             }
-
         } else {
             strcpy(message, "NACK");
         }

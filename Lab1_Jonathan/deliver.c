@@ -17,6 +17,7 @@
 
 #define USER_INPUT_LENGTH 100
 #define MAXBUFLEN 100
+#define MAX_TIMES 10
 
 bool verbose = false;
 
@@ -89,8 +90,8 @@ void create_socket(char* server_add, char* server_port, int* sockfd, struct addr
     }
 }
 
-void send_message (char* server_add,int* sockfd, char* message, struct addrinfo* servinfo, struct addrinfo* cp, int* numbytes){
-    if ((*numbytes = sendto(*sockfd, message, strlen(message), 0,
+void send_message (char* server_add,int* sockfd, char* message, struct addrinfo* servinfo, struct addrinfo* cp, int* numbytes, int length){
+    if ((*numbytes = sendto(*sockfd, message, length, 0,
         servinfo->ai_addr, servinfo->ai_addrlen)) == -1) {
         perror("talker: sendto");
         exit(1);
@@ -102,9 +103,9 @@ void send_message (char* server_add,int* sockfd, char* message, struct addrinfo*
 }
 
 void receive_message(int *sockfd, char* buf, int* numbytes){
-    struct sockaddr_storage their_addr;
+    struct sockaddr_in their_addr;
     socklen_t addr_len;
-    char s[INET6_ADDRSTRLEN];
+    char s[INET_ADDRSTRLEN];
     if (verbose){
         printf("listener: waiting to recvfrom...\n");
     }
@@ -117,10 +118,7 @@ void receive_message(int *sockfd, char* buf, int* numbytes){
 
     buf[*numbytes] = '\0';
     if (verbose){
-        printf("listener: got packet from %s:%hu\n",
-        inet_ntop(their_addr.ss_family,
-        get_in_addr((struct sockaddr *)&their_addr),
-        s, sizeof s), ntohs(((struct sockaddr_in *)&their_addr)->sin_port));
+        printf("listener: got packet from %s:%hu\n", inet_ntop(their_addr.sin_family, &their_addr.sin_addr, s, sizeof s), ntohs(their_addr.sin_port));
         printf("listener: packet is %d bytes long\n", *numbytes);
         printf("listener: packet contains \"%s\"\n", buf);
     }
@@ -152,7 +150,6 @@ void get_next_data(FILE *fp, struct packet* next_packet) {
 }
 
 int packet_to_string(char* packet_string, struct packet* next_packet){
-    char temp[100], temp2[100], temp3[100];
     sprintf(packet_string, "%d:%d:%d:%s:", next_packet->total_frag,next_packet->frag_no,next_packet->size,next_packet->filename);
     int str_size = strlen(packet_string);
     memcpy(packet_string+strlen(packet_string),next_packet->filedata,next_packet->size);
@@ -188,7 +185,7 @@ int main (int argc, char *argv[]) {
     
     char* message = "ftp";
     int numbytes;
-    send_message (server_add,&sockfd,message,servinfo,cp,&numbytes);
+    send_message (server_add,&sockfd,message,servinfo,cp,&numbytes, strlen(message));
 
     char buf[MAXBUFLEN];
     receive_message(&sockfd,buf,&numbytes);
@@ -214,20 +211,39 @@ int main (int argc, char *argv[]) {
         packet_string[0]='\0';
         str_size = packet_to_string(packet_string,&next_packet);
         if(verbose){
-            printf("Str size:%d, %s\n", str_size, packet_string);
+            printf("Str size:%d, %s, %ld\n", str_size, packet_string, strlen(packet_string));
         }
-        send_message (server_add,&sockfd,packet_string,servinfo,cp,&numbytes);
-        if (numbytes!=str_size){
-            fprintf(stderr, "Sent bytes different from str length\n");
-            return (1);
-        }
-        receive_message(&sockfd,buf,&numbytes);
-        if (strcmp(buf,"ACK")!=0){
-            fprintf(stderr, "No ACK received\n");
-            return (1);
-        }
-        if (verbose){
-            printf("ACK received\n");
+        fd_set readfds;
+        struct timeval wait_time;
+        int times_tried = 0;
+        while (true){
+            wait_time.tv_sec = 0;
+            wait_time.tv_usec = 1000*1000; //1s
+            FD_ZERO(&readfds);
+            FD_SET(sockfd, &readfds);
+            send_message (server_add,&sockfd,packet_string,servinfo,cp,&numbytes, str_size);
+            times_tried++;
+            if (numbytes!=str_size){
+                fprintf(stderr, "Sent bytes different from str length\n");
+                return (1);
+            }
+            select(sockfd+1, &readfds, NULL, NULL, &wait_time);
+            if (!FD_ISSET(sockfd, &readfds)){
+                fprintf(stderr,"Failed to send packet!\n");
+                if (times_tried>MAX_TIMES){
+                    printf("Sending failure.\n");
+                    return 1;
+                }
+                continue;
+            }
+            
+            receive_message(&sockfd,buf,&numbytes);
+            if (strcmp(buf,"ACK")==0){
+                if (verbose){
+                    printf("ACK received\n");
+                }
+                break;
+            }
         }
         free(packet_string);
     }
@@ -236,8 +252,8 @@ int main (int argc, char *argv[]) {
     }
     fclose(fp);
     free(next_packet.filename);
-    // freeaddrinfo(servinfo);
-    // freeaddrinfo(clientinfo);
-    // close(sockfd);
+    freeaddrinfo(servinfo);
+    freeaddrinfo(clientinfo);
+    close(sockfd);
     return 0;
 }
