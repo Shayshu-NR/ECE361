@@ -10,12 +10,12 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <stdbool.h>
-#include "packet.h"
 
 #define MAXBUFLEN 2000
 
-bool verbose = false;
+bool verbose = false; //command line arg for display extraneous outputs
 
+/*creates socket with a given address and ip for listening to udp*/
 void create_listen_socket(char* server_port, int* sockfd, struct addrinfo* hints, struct addrinfo** servinfo, struct addrinfo** p){
     int rv;
     memset(hints, 0, sizeof (*hints));
@@ -46,6 +46,7 @@ void create_listen_socket(char* server_port, int* sockfd, struct addrinfo* hints
     }
 }
 
+/*creates another socket for talking to client via client_address and  their port#*/
 void create_talking_socket(char* client_add, int* client_sockfd, struct addrinfo* hints, struct sockaddr_in* their_addr, struct addrinfo** clientinfo, struct addrinfo** sp){
     memset(hints, 0, sizeof (*hints));
     hints->ai_family = AF_INET;
@@ -72,6 +73,7 @@ void create_talking_socket(char* client_add, int* client_sockfd, struct addrinfo
     }
 }
 
+/*receives messages on the listening socket and puts it in buf, buf is c-string with strlen(numbytes), also updates their_addr and s*/
 void receive_message(int *sockfd, char* buf, int* numbytes, struct sockaddr_in* their_addr, socklen_t* addr_len, char* s){
     printf("listener: waiting to recvfrom...\n");
     *addr_len = sizeof (struct sockaddr_in);
@@ -89,6 +91,7 @@ void receive_message(int *sockfd, char* buf, int* numbytes, struct sockaddr_in* 
     }
 }
 
+/*sends message on client socket*/
 void send_message(int* client_sockfd, char* message, struct addrinfo* sp, int* numbytes, char*s) {
     if ((*numbytes = sendto(*client_sockfd, message, strlen(message), 0,
         sp->ai_addr, sp->ai_addrlen)) == -1) {
@@ -100,6 +103,7 @@ void send_message(int* client_sockfd, char* message, struct addrinfo* sp, int* n
     }
 }
 
+/*finds the number in a client string of format A:B:C:D:E*/
 int decode_string(const char* string, char** next_seg){
     char* delim_pos = strpbrk(string,":");
     char num[100];
@@ -131,6 +135,7 @@ int main (int argc, char *argv[]) {
     
     receive_message(&sockfd,buf,&numbytes,&their_addr,&addr_len, s);
 
+    //accept ftp requests
     char message[100];
     if (strcmp(buf,"ftp")==0){
         strcpy(message,"yes");
@@ -140,13 +145,16 @@ int main (int argc, char *argv[]) {
 
     create_talking_socket(s,&client_sockfd,&hints,&their_addr,&clientinfo,&sp);
 
+    //send accepting message
     send_message(&client_sockfd,message,sp,&numbytes,s);
     
+
     int total_frags, current_frag=0;
     FILE* new_file;
     while (true){
         receive_message(&sockfd,buf,&numbytes,&their_addr,&addr_len, s);
         //printf("Message received:%ld\n", strlen(buf));
+        //decode string
         char* next_seg;
         total_frags = decode_string(buf, &next_seg);
         int new_frag_no = decode_string(next_seg, &next_seg);
@@ -157,6 +165,7 @@ int main (int argc, char *argv[]) {
         filename[delim_pos-next_seg]='\0';
         next_seg = delim_pos+1;
         if (new_frag_no==current_frag+1){
+            //first frag, created new file
             current_frag = new_frag_no;
             strcpy(message, "ACK");
             if (current_frag==1){
@@ -173,6 +182,7 @@ int main (int argc, char *argv[]) {
             strcpy(message, "NACK");
         }
         fwrite(next_seg,frag_size, 1, new_file);
+        //send ACK or NACK
         send_message(&client_sockfd,message,sp,&numbytes,s);
         if (current_frag==total_frags){
             break;

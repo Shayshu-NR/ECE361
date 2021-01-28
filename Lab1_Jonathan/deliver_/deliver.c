@@ -21,15 +21,7 @@
 
 bool verbose = false;
 
-// get sockaddr, IPv4 or IPv6:
-void *get_in_addr(struct sockaddr *sa)
-{
-    if (sa->sa_family == AF_INET) {
-        return &(((struct sockaddr_in*)sa)->sin_addr);
-    }
-    return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
-
+/*open file with name and return file pointer*/
 FILE* open_file (char* file_name_short){
     char user_input[USER_INPUT_LENGTH];
     printf("Enter: ftp <filename>\n");
@@ -49,6 +41,7 @@ FILE* open_file (char* file_name_short){
     return fp;
 }
 
+/*creates socket for udp binds to a certain port and updates servinfo and clientinfo*/
 void create_socket(char* server_add, char* server_port, int* sockfd, struct addrinfo* hints, struct addrinfo** servinfo, struct addrinfo** clientinfo, struct addrinfo** cp){
     memset(hints, 0, sizeof (*hints));
     int rv;
@@ -90,6 +83,7 @@ void create_socket(char* server_add, char* server_port, int* sockfd, struct addr
     }
 }
 
+/*sends message on udp socket*/
 void send_message (char* server_add,int* sockfd, char* message, struct addrinfo* servinfo, struct addrinfo* cp, int* numbytes, int length){
     if ((*numbytes = sendto(*sockfd, message, length, 0,
         servinfo->ai_addr, servinfo->ai_addrlen)) == -1) {
@@ -102,6 +96,7 @@ void send_message (char* server_add,int* sockfd, char* message, struct addrinfo*
     }
 }
 
+/*receives message on udp socket*/
 void receive_message(int *sockfd, char* buf, int* numbytes){
     struct sockaddr_in their_addr;
     socklen_t addr_len;
@@ -115,7 +110,6 @@ void receive_message(int *sockfd, char* buf, int* numbytes){
         perror("recvfrom");
         exit(1);
     }
-
     buf[*numbytes] = '\0';
     if (verbose){
         printf("listener: got packet from %s:%hu\n", inet_ntop(their_addr.sin_family, &their_addr.sin_addr, s, sizeof s), ntohs(their_addr.sin_port));
@@ -124,6 +118,7 @@ void receive_message(int *sockfd, char* buf, int* numbytes){
     }
 }
 
+/*gets size of file and number of fragments and writes in on packet header*/
 void get_file_info(FILE *fp, struct packet* next_packet){
     fseek(fp, 0L, SEEK_END);
     int size = ftell(fp);
@@ -135,6 +130,7 @@ void get_file_info(FILE *fp, struct packet* next_packet){
     //printf("Size:%d\n", size);
 }   
 
+/*gets up to 1000 bytes of packet and writes in in the data section of packet*/
 void get_next_data(FILE *fp, struct packet* next_packet) {
     if (next_packet->frag_no!=next_packet->total_frag){
         int bytes_read = fread(next_packet->filedata,1000,1,fp)*1000;
@@ -149,6 +145,7 @@ void get_next_data(FILE *fp, struct packet* next_packet) {
     }
 }
 
+/*converts the packet to a c-string for sending*/
 int packet_to_string(char* packet_string, struct packet* next_packet){
     sprintf(packet_string, "%d:%d:%d:%s:", next_packet->total_frag,next_packet->frag_no,next_packet->size,next_packet->filename);
     int str_size = strlen(packet_string);
@@ -177,6 +174,7 @@ int main (int argc, char *argv[]) {
     
     create_socket(server_add,server_port,&sockfd,&hints,&servinfo,&clientinfo,&cp);
 
+    //used for timing roundtrip time
     long timer_start, timer_end;
     struct timeval timecheck;
 
@@ -198,11 +196,13 @@ int main (int argc, char *argv[]) {
         printf("A file tranfer can start.\n");
     }
 
+    //creates packet for ftp
     struct packet next_packet;
     next_packet.filename = malloc((strlen(file_name_short)+1)*sizeof(char));
     strcpy(next_packet.filename,file_name_short);
     get_file_info(fp,&next_packet);
 
+    //get fragment, convert to string, and send it
     for (int i=0; i<next_packet.total_frag; i++){
         next_packet.frag_no=i+1;
         get_next_data(fp,&next_packet);
@@ -216,6 +216,8 @@ int main (int argc, char *argv[]) {
         fd_set readfds;
         struct timeval wait_time;
         int times_tried = 0;
+        
+        //loop until successful ACK message
         while (true){
             wait_time.tv_sec = 0;
             wait_time.tv_usec = 1000*1000; //1s
