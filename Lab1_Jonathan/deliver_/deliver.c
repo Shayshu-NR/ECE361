@@ -31,6 +31,10 @@ FILE* open_file (char* file_name_short){
         exit(1);
     }
     strcpy(file_name_short,user_input+4);
+    if (strlen(file_name_short)==1){
+        printf("No filename input.\n");
+        exit(1);
+    }
     file_name_short[strlen(file_name_short)-1]='\0';
     FILE * fp;
     fp = fopen(file_name_short, "rb");
@@ -190,7 +194,8 @@ int main (int argc, char *argv[]) {
     gettimeofday(&timecheck, NULL);
     timer_end = (long)timecheck.tv_sec * 1000000 + (long)timecheck.tv_usec;
 
-    printf("Roundtrip time: %ldus\n", (timer_end-timer_start));
+    long rtt = timer_end-timer_start;
+    printf("Roundtrip time: %ldus\n", rtt);
     
     if (strcmp(buf,"yes")==0){
         printf("A file tranfer can start.\n");
@@ -220,7 +225,7 @@ int main (int argc, char *argv[]) {
         //loop until successful ACK message
         while (true){
             wait_time.tv_sec = 0;
-            wait_time.tv_usec = 1000*1000; //1s
+            wait_time.tv_usec = 1000*rtt; //1s
             FD_ZERO(&readfds);
             FD_SET(sockfd, &readfds);
             send_message (server_add,&sockfd,packet_string,servinfo,cp,&numbytes, str_size);
@@ -240,11 +245,14 @@ int main (int argc, char *argv[]) {
             }
             
             receive_message(&sockfd,buf,&numbytes);
-            if (strcmp(buf,"ACK")==0){
+            if (strncmp(buf,"ACK",3)==0){
+                int num = atoi(buf+3);
                 if (verbose){
-                    printf("ACK received\n");
+                    printf("ACK: %d received\n", num);
                 }
-                break;
+                if (num==i+2){
+                    break;
+                }
             }
         }
         free(packet_string);

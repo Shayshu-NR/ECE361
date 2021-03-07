@@ -150,6 +150,7 @@ int main (int argc, char *argv[]) {
     
 
     int total_frags, current_frag=0;
+    strcpy(message, "NACK");
     FILE* new_file;
     while (true){
         receive_message(&sockfd,buf,&numbytes,&their_addr,&addr_len, s);
@@ -168,6 +169,9 @@ int main (int argc, char *argv[]) {
             //first frag, created new file
             current_frag = new_frag_no;
             strcpy(message, "ACK");
+            char num [10];
+            sprintf(num, "%d", new_frag_no+1);
+            strcat(message, num);
             if (current_frag==1){
                 new_file = fopen(filename, "w+b");
                 if(new_file == NULL) {
@@ -178,8 +182,6 @@ int main (int argc, char *argv[]) {
                     printf("File created: %s\n", filename);
                 }
             }
-        } else {
-            strcpy(message, "NACK");
         }
         fwrite(next_seg,frag_size, 1, new_file);
         //send ACK or NACK
