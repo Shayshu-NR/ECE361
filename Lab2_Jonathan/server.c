@@ -151,10 +151,26 @@ int add_client(struct client* clients, int sockfd, char* ip_addr, int port) {
 }
 
 /*Removes client from client list, return 0 if removed, -1 if it does not exist*/
-int remove_client(struct client* clients, uint32_t client_id){
-    for (int i=0;i<MAX_CLIENTS;i++){
-        if (clients[i].client_id==client_id){
-            clients[i].client_id = 0; 
+int remove_client(struct client* clients, struct session* sessions, int sockfd){
+    for (int i=0;i<MAX_CLIENTS;i++){ //find our client, if exists
+        if (clients[i].sockfd==sockfd){ 
+            for (int j=0;j<MAX_SESSIONS;j++){ //find sessions client is in
+                uint32_t session_id = clients[i].sessions[j];
+                if ((session_id)!=0){
+                    for (int k=0;k<MAX_SESSIONS;k++){ //find session is sessions
+                        if (sessions[k].session_id == session_id){ 
+                            for (int l=0;l<MAX_CLIENTS;l++){
+                                if (sessions[k].clients[l]==clients[i].client_id){ //find client in sessions
+                                    sessions[k].clients[l]=0;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            clients[i].sockfd = 0;
+            clients[i].client_id = 0; //remove client from client list
             return 0;
         }
     }
@@ -188,7 +204,9 @@ int main(int argc, char *argv[]){
     }
 
     while (true){
-        printf("Waiting:\n");
+        if (verbose){
+            printf("Waiting:\n");
+        }
         struct timeval wait_time;
         wait_time.tv_sec = MAX_WAIT_TIME;
         wait_time.tv_usec = 0; 
@@ -226,17 +244,24 @@ int main(int argc, char *argv[]){
             if (clients[i].client_id!=0){
                 if (FD_ISSET(clients[i].sockfd, &readfds)){
                     char buf[BUFLEN];
-                    if (receive_message(clients[i].sockfd, buf)!=-1){
-                        if (verbose) {
-                            printf("New message: %s", buf);
+                    int rv = receive_message(clients[i].sockfd, buf);
+                    if (rv==0){
+                        /*Client closed connection*/
+                        if (verbose){
+                            printf("Client timed out\n");
                         }
+                        remove_client(clients, sessions, clients[i].sockfd);
+                    } else if (rv!=-1){
+                        if (verbose) {
+                            printf("New message: %s\n", buf);
+                        }
+                        /*echo the message*/
+                        send_message(clients[i].sockfd, buf);
                     }
-                    /*echo the message*/
-                    send_message(clients[i].sockfd, buf);
-                }
-            }
-        }
-    }
+                } //check if sockfd received messages
+            } 
+        }//check all clients
+    } //infinite loop
 
     close(accept_sockfd);
     return 0;

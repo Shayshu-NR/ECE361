@@ -14,6 +14,11 @@
 #include "structs.h"
 
 bool verbose=false;
+int create_socket(char* server_addr, char* server_port);
+int send_message(int client_sockfd, struct message message);
+int receive_message(int client_sockfd);
+int decode_message(char* buf);
+enum client_command get_command (char* client_keyword);
 
 /*Creates socket with a given address and ip for TCP, returns sockfd*/
 int create_socket(char* server_addr, char* server_port){
@@ -53,33 +58,108 @@ int create_socket(char* server_addr, char* server_port){
     return sockfd;
 }
 
-/*Sends message to server, returns number of bytes sent*/
+/*Sends message to server, returns number of bytes sent, -1 otherwise*/
 int send_message(int client_sockfd, struct message message) {
-    
+    char buf [BUFLEN];
+    int rv = sprintf(buf, "%u %u %s\n%s", message.type, message.size,
+        message.source, message.data);
+    if (rv<0){
+        printf("Failed to create buf message!\n");
+        return -1;
+    }
 
     int numbytes;
-    if ((numbytes = send(client_sockfd, message, strlen(message)+1, 0)) == -1) {
+    if ((numbytes = send(client_sockfd, buf, rv+1, 0)) == -1) {
         perror("talker: sendto");
         exit(1);
     }
     if (verbose){
-        printf("Message sent: %s\n", message);
+        printf("Message sent: %s\n", buf);
     }
     return numbytes;
 }
 
 /*Receives message from server, returns number of bytes sent*/
-int receive_message(int client_sockfd, char* buf){
+int receive_message(int client_sockfd){
+    char buf [BUFLEN];
     int numbytes;
     if ((numbytes = recv(client_sockfd, buf, BUFLEN, 0)) == -1) {
         perror("talker: recv");
         exit(1);
     }
+    if (numbytes==0){
+        /*Server timed out*/
+        if (verbose){
+            printf("Server timed out.\n");
+        }
+        close(client_sockfd);
+        exit(-1);
+    }
     if (verbose){
         printf("Message received: %s\n", buf);
     }
+    decode_message(buf);
     return numbytes;
 }
+
+/*Decodes message that server sent*/
+int decode_message(char* buf){
+    struct message message;
+    int rv = sscanf(buf, "%u%u%[^\n]%*c%[^\n]", &message.type, &message.size, message.source,
+        message.data);
+    if (rv<3){
+        printf("Error decoding message!\n");
+        return -1;
+    }
+    switch (message.type){
+        case LO_ACK : 
+            printf("Successfully logged in.\n");
+            break;
+        case LO_NAK:
+            if (rv<4){
+                printf("Error decoding message!\n");
+                return -1;
+            }
+            printf("Failed to log in: %s\n", message.data);
+            break;
+        case JN_ACK:
+            if (rv<4){
+                printf("Error decoding message!\n");
+                return -1;
+            }
+            printf("Sucessfully joined session: %s\n", message.data);
+            break;
+        case JN_NAK:
+            if (rv<4){
+                printf("Error decoding message!\n");
+                return -1;
+            }
+            printf("Failed to joined session: %s\n", message.data);
+            break;
+        case NS_ACK:
+            if (rv<4){
+                printf("Error decoding message!\n");
+                return -1;
+            }
+            printf("Created new session: %s\n", message.data);
+            break;
+        case MESSAGE:
+            if (rv<4){
+                printf("Error decoding message!\n");
+                return -1;
+            }
+            printf("Message from %s: %s\n", message.source, message.data);
+            break;
+        case QU_ACK:
+            //do something here
+            break;
+        default:
+            printf("Error decoding message!\n");
+            return -1;
+    }
+    return 0;
+}
+
 
 /*Gets command from client, parses it as one of the enum*/
 enum client_command get_command (char* client_keyword){
@@ -116,60 +196,145 @@ int main(int argc, char *argv[]){
     if (argc>1&&(strcmp(argv[1], "-v")==0)){
         verbose = true;
     }
-    char client_keyword [MAX_CLIENT_INPUT];
-    if (scanf("%s", client_keyword)==EOF){
-        printf("Error getting input\n");
-        return -1;
-    }
+    int sockfd=0;
 
-    enum client_command client_command = get_command(client_keyword);
+    while (true){
+        fflush(stdin);
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(STDIN, &readfds);
+        if (sockfd){
+            FD_SET(sockfd, &readfds);
+            select(sockfd+1, &readfds, NULL, NULL, NULL);
+        } else {
+            select(STDIN+1, &readfds, NULL, NULL, NULL);
+        }
+        /*select returns*/
+        if (sockfd){
+            if (FD_ISSET(sockfd, &readfds)){
+                receive_message(sockfd);
+            }
+        }
+        if (FD_ISSET(STDIN, &readfds)){
+            char client_keyword [MAX_CLIENT_INPUT];
+            if (scanf("%s", client_keyword)==EOF){
+                printf("Error getting input\n");
+                return -1;
+            }
 
-    int client_id, session_id, sockfd;
-    switch (client_command) {
-        case LOGON : ;
-            char password [MAX_PASSWORD];
-            char server_ip [INET_ADDRSTRLEN];
-            char port [MAX_CLIENT_INPUT];
-            if (scanf("%d %s %s %s", &client_id, password, server_ip, port)==EOF){
-                printf("Error getting input\n");
-                return -1;
-            }
-            sockfd = create_socket(server_ip,port);
-            char buf [BUFLEN] = "Hello";
-            send_message(sockfd, buf);
-            receive_message(sockfd, buf);
-            printf("Echo: %s\n", buf);
-            while (true) ;
-            break;
-        case LOGOUT :
-            printf("%d\n", client_command); 
-            break;
-        case JOINSESSION :
-            if (scanf("%d", &session_id)==EOF){
-                printf("Error getting input\n");
-                return -1;
-            }
-            printf("%d\n", client_command);         
-            break;
-        case LEAVESESSION :
-            printf("%d\n", client_command);   
-            break;
-        case CREATSESSION :
-            if (scanf("%d", &session_id)==EOF){
-                printf("Error getting input\n");
-                return -1;
-            }
-            printf("%d\n", client_command);   
-            break;
-        case LIST :
-            printf("%d\n", client_command);   
-            break;
-        case QUIT :
-            printf("%d\n", client_command); 
-            break;
-        case TEXT :
-            printf("%d\n", client_command);  
-            break;
-    }
+            enum client_command client_command = get_command(client_keyword);
+
+            char client_id [MAX_CLIENT_INPUT];
+            char client_input [MAX_CLIENT_INPUT];
+            struct message message;
+            char empty_string[] = "";
+            switch (client_command) {
+                case LOGIN : ;
+                    char password [MAX_PASSWORD];
+                    char server_ip [INET_ADDRSTRLEN];
+                    char port [MAX_CLIENT_INPUT];
+                    if (scanf("%s %s %s %s", client_id, password, server_ip, port)==EOF){
+                        printf("Error getting input\n");
+                        return -1;
+                    }
+                    if (!sockfd){
+                        sockfd = create_socket(server_ip,port);
+                    }
+                    message.type = LOGON;
+                    message.size = strlen(password);
+                    strncpy((char*)message.source, client_id, MAX_NAME);
+                    strncpy((char*)message.data, password, MAX_DATA);
+                    send_message(sockfd, message);
+                    break;
+                case LOGOUT :
+                    if (!sockfd){
+                        printf("Error: No connection established\n");
+                        continue;
+                    }
+                    message.type = EXIT;
+                    message.size = 0;
+                    strncpy((char*)message.source, client_id, MAX_NAME);
+                    strncpy((char*)message.data, empty_string, MAX_DATA);
+                    send_message(sockfd, message);
+                    close (sockfd);
+                    sockfd = 0;
+                    break;
+                case JOINSESSION :
+                    if (!sockfd){
+                        printf("Error: No connection established\n");
+                        continue;
+                    }
+                    if (scanf("%s", client_input)==EOF){
+                        printf("Error getting input\n");
+                        return -1;
+                    }
+                    message.type = JOIN;
+                    message.size = strlen(client_input);
+                    strncpy((char*)message.source, client_id, MAX_NAME);
+                    strncpy((char*)message.data, client_input, MAX_DATA);
+                    send_message(sockfd, message);         
+                    break;
+                case LEAVESESSION :
+                    if (!sockfd){
+                        printf("Error: No connection established\n");
+                        continue;
+                    }
+                    message.type = LEAVE_SESS;
+                    message.size = 0;
+                    strncpy((char*)message.source, client_id, MAX_NAME);
+                    strncpy((char*)message.data, empty_string, MAX_DATA);
+                    send_message(sockfd, message);
+                    break;
+                case CREATSESSION :
+                    if (!sockfd){
+                        printf("Error: No connection established\n");
+                        continue;
+                    }
+                    if (scanf("%s", client_input)==EOF){
+                        printf("Error getting input\n");
+                        return -1;
+                    }
+                    message.type = NEW_SESS;
+                    message.size = strlen(client_input);
+                    strncpy((char*)message.source, client_id, MAX_NAME);
+                    strncpy((char*)message.data, client_input, MAX_DATA);
+                    send_message(sockfd, message);  
+                    break;
+                case LIST :
+                    if (!sockfd){
+                        printf("Error: No connection established\n");
+                        continue;
+                    }
+                    message.type = QUERY;
+                    message.size = 0;
+                    strncpy((char*)message.source, client_id, MAX_NAME);
+                    strncpy((char*)message.data, empty_string, MAX_DATA);
+                    send_message(sockfd, message);
+                    break;
+                case QUIT :
+                    if (!sockfd){
+                        printf("Error: No connection established\n");
+                        continue;
+                    }
+                    close(sockfd);
+                    return 0;
+                case TEXT :
+                    if (!sockfd){
+                        printf("Error: No connection established\n");
+                        continue;
+                    }
+                    if (scanf("%*c%[^\n]", client_input)==EOF){
+                        printf("Error getting input\n");
+                        return -1;
+                    }
+                    message.type = MESSAGE;
+                    message.size = strlen(client_input);
+                    strncpy((char*)message.source, client_id, MAX_NAME);
+                    strncpy((char*)message.data, client_input, MAX_DATA);
+                    send_message(sockfd, message);
+                    break;
+            } //Switch case
+        } //FDISSET(STDIN)
+    } //While LOOP
     return 0;
 }

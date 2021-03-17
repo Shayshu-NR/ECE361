@@ -6,11 +6,12 @@
 #define MAX_DATA 256
 #define MAX_PASSWORD 32
 #define MAX_CLIENTS 10
-#define MAX_CLIENT_INPUT 15
+#define MAX_CLIENT_INPUT 100
 #define MAX_SESSIONS 10
 #define BACKLOG 10
 #define BUFLEN 1000
 #define MAX_WAIT_TIME 1
+#define STDIN 0
 
 struct message {
     uint32_t type;
