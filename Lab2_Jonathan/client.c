@@ -54,14 +54,16 @@ int create_socket(char* server_addr, char* server_port){
 }
 
 /*Sends message to server, returns number of bytes sent*/
-int send_message(int client_sockfd, char* message) {
+int send_message(int client_sockfd, struct message message) {
+    
+
     int numbytes;
     if ((numbytes = send(client_sockfd, message, strlen(message)+1, 0)) == -1) {
         perror("talker: sendto");
         exit(1);
     }
     if (verbose){
-        printf("Message sent: %s", message);
+        printf("Message sent: %s\n", message);
     }
     return numbytes;
 }
@@ -74,7 +76,7 @@ int receive_message(int client_sockfd, char* buf){
         exit(1);
     }
     if (verbose){
-        printf("Message received: %s", buf);
+        printf("Message received: %s\n", buf);
     }
     return numbytes;
 }
@@ -109,6 +111,7 @@ enum client_command get_command (char* client_keyword){
     return client_command;
 }
 
+
 int main(int argc, char *argv[]){
     if (argc>1&&(strcmp(argv[1], "-v")==0)){
         verbose = true;
@@ -136,6 +139,7 @@ int main(int argc, char *argv[]){
             send_message(sockfd, buf);
             receive_message(sockfd, buf);
             printf("Echo: %s\n", buf);
+            while (true) ;
             break;
         case LOGOUT :
             printf("%d\n", client_command); 

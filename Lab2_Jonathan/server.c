@@ -11,7 +11,9 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <fcntl.h>
 #include "structs.h"
+
 
 bool verbose=false;
 
@@ -180,13 +182,16 @@ int main(int argc, char *argv[]){
     struct session sessions [MAX_SESSIONS] = {0};
     struct client clients [MAX_CLIENTS] = {0};
     int accept_sockfd = create_listen_socket(server_port);
-    int i=0;
-    /*Loop for listening to connection requests and client messages*/
+    if (fcntl(accept_sockfd, F_SETFL, O_NONBLOCK)){
+        printf("Failed to set fnctl!\n");
+        return -1;
+    }
+
     while (true){
-        printf("Loop: %d\n", i);
+        printf("Waiting:\n");
         struct timeval wait_time;
         wait_time.tv_sec = MAX_WAIT_TIME;
-        wait_time.tv_usec = 0; //1s
+        wait_time.tv_usec = 0; 
         fd_set readfds;
         int max_fd = accept_sockfd+1;
         FD_ZERO(&readfds);
@@ -194,7 +199,7 @@ int main(int argc, char *argv[]){
         for (int i=0;i<MAX_CLIENTS;i++){
             if (clients[i].client_id!=0){
                 FD_SET(clients[i].sockfd, &readfds);
-                if (clients[i].sockfd>max_fd){
+                if (clients[i].sockfd>=max_fd){
                     max_fd = clients[i].sockfd+1;
                 }
             }
@@ -209,10 +214,12 @@ int main(int argc, char *argv[]){
                 if (add_client(clients, new_fd, s, ntohs(their_addr.sin_port))){
                     printf("No more client space!\n");
                 }
+                if (fcntl(new_fd, F_SETFL, O_NONBLOCK)){
+                    printf("Failed to set fnctl!\n");
+                    return -1;
+                }
+                continue;
             }
-            ;
-            i++;
-            continue;
         }
         /*Check if any messages received*/
         for (int i=0;i<MAX_CLIENTS;i++){
@@ -229,9 +236,7 @@ int main(int argc, char *argv[]){
                 }
             }
         }
-        i++;
     }
-
 
     close(accept_sockfd);
     return 0;

@@ -10,7 +10,7 @@
 #define MAX_SESSIONS 10
 #define BACKLOG 10
 #define BUFLEN 1000
-#define MAX_WAIT_TIME 100
+#define MAX_WAIT_TIME 1
 
 struct message {
     uint32_t type;
