@@ -61,7 +61,7 @@ int create_socket(char* server_addr, char* server_port){
 /*Sends message to server, returns number of bytes sent, -1 otherwise*/
 int send_message(int client_sockfd, struct message message) {
     char buf [BUFLEN];
-    int rv = sprintf(buf, "%u %u %s\n%s", message.type, message.size,
+    int rv = sprintf(buf, "%u %u %s %s", message.type, message.size,
         message.source, message.data);
     if (rv<0){
         printf("Failed to create buf message!\n");
@@ -105,7 +105,7 @@ int receive_message(int client_sockfd){
 /*Decodes message that server sent*/
 int decode_message(char* buf){
     struct message message;
-    int rv = sscanf(buf, "%u%u%[^\n]%*c%[^\n]", &message.type, &message.size, message.source,
+    int rv = sscanf(buf, "%u%u%s%*c%[^\n]", &message.type, &message.size, message.source,
         message.data);
     if (rv<3){
         printf("Error decoding message!\n");
@@ -151,7 +151,7 @@ int decode_message(char* buf){
             printf("Message from %s: %s\n", message.source, message.data);
             break;
         case QU_ACK:
-            //do something here
+            printf("%s\n",message.data);
             break;
         default:
             printf("Error decoding message!\n");
@@ -185,8 +185,12 @@ enum client_command get_command (char* client_keyword){
     else if (strcmp(client_keyword, "/quit")==0){
         client_command = QUIT;
     }
-    else {
+    else if (strcmp(client_keyword, "TEXT")==0){
         client_command = TEXT;
+    }
+    else {
+        printf("Not a valid command!\n");
+        client_command = NONE;
     }
     return client_command;
 }
@@ -279,10 +283,14 @@ int main(int argc, char *argv[]){
                         printf("Error: No connection established\n");
                         continue;
                     }
+                    if (scanf("%s", client_input)==EOF){
+                        printf("Error getting input\n");
+                        return -1;
+                    }
                     message.type = LEAVE_SESS;
-                    message.size = 0;
+                    message.size = strlen(client_input);
                     strncpy((char*)message.source, client_id, MAX_NAME);
-                    strncpy((char*)message.data, empty_string, MAX_DATA);
+                    strncpy((char*)message.data, client_input, MAX_DATA);
                     send_message(sockfd, message);
                     break;
                 case CREATSESSION :
@@ -332,6 +340,8 @@ int main(int argc, char *argv[]){
                     strncpy((char*)message.source, client_id, MAX_NAME);
                     strncpy((char*)message.data, client_input, MAX_DATA);
                     send_message(sockfd, message);
+                    break;
+                default :
                     break;
             } //Switch case
         } //FDISSET(STDIN)

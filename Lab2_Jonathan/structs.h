@@ -6,7 +6,7 @@
 #define MAX_DATA 256
 #define MAX_PASSWORD 32
 #define MAX_CLIENTS 10
-#define MAX_CLIENT_INPUT 100
+#define MAX_CLIENT_INPUT 256
 #define MAX_SESSIONS 10
 #define BACKLOG 10
 #define BUFLEN 1000
@@ -30,7 +30,7 @@ enum control_types {
 };
 
 enum client_command {
-    LOGIN, LOGOUT, JOINSESSION, LEAVESESSION, CREATSESSION, LIST, QUIT, TEXT
+    LOGIN, LOGOUT, JOINSESSION, LEAVESESSION, CREATSESSION, LIST, QUIT, TEXT, NONE
 };
 
 /*an instance of a session, has a list of clients_id belonging to the session
