@@ -14,9 +14,10 @@
 #define MESSAGE 12
 #define QUERY 13
 #define QU_ACK 14
+#define LOGOUT 15
 #define MAX_USERS 10
 #define MAX_SESSIONS 10
-#define MAX_MSG 2000
+#define MAX_MSG 2500
 #define MAX_NAME 100
 #define MAX_PASS 250
 #define MAX_SESSION 100
@@ -26,9 +27,11 @@
 bool logged_in;
 char client_id[MAX_NAME];
 char password[MAX_PASS];
-const char server_ip[15];
-const char port[5];
+char server_ip[INET_ADDRSTRLEN];
+char port[5];
 char session_name[MAX_SESSION];
+char join_session_name[MAX_SESSION];
+char leave_session_name[MAX_SESSION];
 int session_id;
 char current_session[MAX_SESSION];
 char msg[MAX_MSG];
@@ -50,8 +53,13 @@ void login(char * PtoS, int socket);
 
 void logout(char * PtoS, int socket);
 
-void joinSession(char *PtoS, int socket);
+void joinSession(char *PtoS, int socket, char * session_name);
 
 void createSession(char *PtoS, int socket);
 
+void leaveSession(char *PtoS, int socket, char * session_name);
+
+void list(char *PtoS, int socket);
+
+void sendMessage(char *PtoS, int socket, char * msg);
 #endif

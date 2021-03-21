@@ -14,6 +14,7 @@
 #define MESSAGE 12
 #define QUERY 13
 #define QU_ACK 14
+#define LOGOUT 15
 #define MAX_USERS 10
 #define MAX_SESSIONS 10
 #define MAX_MSG 2000
@@ -36,11 +37,24 @@ struct session {
     int session_id;
 };
 
+struct user{
+    char name[MAX_NAME];
+    char ip_addr[INET_ADDRSTRLEN];
+    struct session * chatRoom;
+    int port;
+    int sockfd; 
+    int active;
+    int session_id;
+};
+
 char usernames[MAX_USERS][MAX_NAME];
 char passwords[MAX_USERS][MAX_PASS];
+struct user clients[MAX_USERS];
 int client_sockets[MAX_USERS];
 struct session client_sessions[MAX_SESSIONS];
 int active_sessions;
+
+void *get_in_addr(struct sockaddr *sa);
 
 char *getfield(char *line, int num);
 
@@ -50,14 +64,27 @@ int createSegment(char * PtoS, int packet_type, char * msg);
 
 void getClientDataFromDB(char * path, int col, int password);
 
-bool login(int socket);
+bool login(int socket, struct sockaddr_storage * client_addr);
+
+bool logoutClient(int socket, struct user * leaver);
 
 int verify(char * id, char *pass);
 
 void parseBuffer(char * buffer, struct message * cmd);
 
-int createSession(char * session_name, int socket);
+int createSession(char * session_name, int socket, struct user * creator);
 
 void initSession(struct session * room);
 
+void closeSession(struct session * room);
+
+int joinClientSession(char * session_name, int socket, struct user * joiner);
+
+int leaveClientSession(char * session_name, int socket, struct user * leaver);
+
+bool oneSession(struct user * joiner);
+
+void query(int socket);
+
+void sendSessionMSG(int socket, struct user * sender, char * msg);
 #endif

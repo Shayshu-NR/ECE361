@@ -7,7 +7,20 @@
 #include <time.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <arpa/inet.h>
 #include "server_helper.h"
+
+void *get_in_addr(struct sockaddr *sa)
+{
+    if (sa->sa_family == AF_INET)
+    {
+        return (void *)&(((struct sockaddr_in *)sa)->sin_addr);
+    }
+    else
+    {
+        return (void *)&(((struct sockaddr_in6 *)sa)->sin6_addr);
+    }
+}
 
 char *getfield(char *line, int num)
 {
@@ -124,7 +137,7 @@ int verify(char *id, char *pass)
 // After getting a connection read the received packet
 // and check if the user has the correct set of login information
 // Return true or false depending on success...
-bool login(int socket)
+bool login(int socket, struct sockaddr_storage *client_addr)
 {
     fprintf(stderr, "Logging in user...\n");
 
@@ -173,11 +186,38 @@ bool login(int socket)
     // Correct username and password
     else
     {
+        char ip[INET_ADDRSTRLEN];
+        inet_ntop(client_addr->ss_family, get_in_addr((struct sockaddr *)client_addr), ip, sizeof(ip));
+
+        // Update the client data...
+        memset(clients[verified].ip_addr, '\0', INET_ADDRSTRLEN);
+        strcpy(clients[verified].ip_addr, ip);
+        clients[verified].sockfd = socket;
+
+        fprintf(stderr, "%s : %s\n", clients[verified].name, ip);
+
         client_sockets[verified] = socket;
         createSegment(ACK, LO_ACK, "Login successful");
         send(socket, ACK, BUFFER_SIZE, 0);
         return true;
     }
+}
+
+//
+bool logoutClient(int socket, struct user * leaver){
+    // We assume that the user has left all their current sessions
+    int socket_index = getUser(leaver->name);
+
+    leaver->active = -1;
+    leaver->sockfd = -1;
+    leaver->port = -1;
+    memset(leaver->ip_addr, '\0', INET_ADDRSTRLEN);
+
+    // Remove the socket!
+    close(client_sockets[socket_index]);
+    client_sockets[socket_index] = -1;
+
+    return true;
 }
 
 // Create a control segment to send to the client
@@ -206,13 +246,31 @@ void initSession(struct session *room)
     return;
 }
 
-int createSession(char *session_name, int socket)
+//
+void closeSession(struct session *room)
+{
+    memset(room->name, '\0', MAX_SESSION);
+
+    for (int i = 0; i < MAX_USERS; i++)
+    {
+        room->users[i] = -1;
+    }
+
+    room->session_id = -1;
+
+    return;
+}
+
+//
+int createSession(char *session_name, int socket, struct user *creator)
 {
 
-    if (active_sessions >= MAX_SESSIONS)
+    // If there are too many active sessions, or the
+    // creator is already in  a session then reject the create request
+    if (active_sessions >= MAX_SESSIONS || !oneSession(creator))
     {
         // Send a failed ACK and let the client interpret it...
-        char ACK[BUFFER_SIZE]; 
+        char ACK[BUFFER_SIZE];
         createSegment(ACK, NS_ACK, "-1");
         send(socket, ACK, BUFFER_SIZE, 0);
         return -1;
@@ -225,24 +283,34 @@ int createSession(char *session_name, int socket)
         int i = 0;
         for (; i < MAX_SESSIONS; i++)
         {
-            if (client_sessions[i].session_id == -1 )
+            if (client_sessions[i].session_id == -1)
             {
                 client_sessions[i].session_id = i;
                 strcpy(client_sessions[i].name, session_name);
+                creator->active = 1;
+                creator->chatRoom = &client_sessions[i];
                 active_sessions++;
+
+                // Now add the creator of the session to the list of
+                // active users
+                for (int j = 0; j < MAX_USERS; i++)
+                {
+                    if (client_sessions[i].users[j] == -1)
+                    {
+                        client_sessions[i].users[j] = creator->session_id;
+                        break;
+                    }
+                }
 
                 // Now send a response to the client...
                 char ACK[BUFFER_SIZE];
                 memset(ACK, '\0', BUFFER_SIZE);
 
-                char ses_id[MAX_SESSIONS];
-                memset(ses_id, '\0', MAX_SESSIONS);
-                sprintf(ses_id, "%d", client_sessions[i].session_id);
-
-                createSegment(ACK, NS_ACK, ses_id);
+                createSegment(ACK, NS_ACK, client_sessions[i].name);
                 fprintf(stderr, "%s\n", ACK);
 
-                if(send(socket, ACK, BUFFER_SIZE, 0) < 0){
+                if (send(socket, ACK, BUFFER_SIZE, 0) < 0)
+                {
                     fprintf(stderr, "Failed send\n");
                 }
                 return i;
@@ -250,9 +318,242 @@ int createSession(char *session_name, int socket)
         }
 
         // Send a failed ACK and let the client interpret it...
-        char ACK[BUFFER_SIZE]; 
+        char ACK[BUFFER_SIZE];
         createSegment(ACK, NS_ACK, "-1");
         send(socket, ACK, BUFFER_SIZE, 0);
         return -1;
     }
+}
+
+//
+bool oneSession(struct user *joiner)
+{
+
+    for (int i = 0; i < MAX_SESSIONS; i++)
+    {
+        for (int j = 0; j < MAX_USERS; j++)
+        {
+            if (client_sessions[i].users[j] == joiner->session_id)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+//
+int joinClientSession(char *session_name, int socket, struct user *joiner)
+{
+    // Make sure the joiner isn't apart of any other session
+    if (!oneSession(joiner))
+    {
+        // If they are in another session then send a NACK
+        char ACK[BUFFER_SIZE];
+        char msg[MAX_MSG];
+        strcpy(msg, session_name);
+        strcat(msg, ", user already in a session");
+
+        createSegment(ACK, JN_NACK, msg);
+        send(socket, ACK, BUFFER_SIZE, 0);
+        return -1;
+    }
+
+    // Find the correct session..
+    int index = 0;
+    for (; index < MAX_SESSIONS; index++)
+    {
+        fprintf(stderr, "Searching: %s %s\n", client_sessions[index].name, session_name);
+        if (strcmp(client_sessions[index].name, session_name) == 0)
+        {
+            // Now that we've found the correct session
+            // Add the user to the list of active users...
+            // And make the joiner active
+            for (int i = 0; i < MAX_USERS; i++)
+            {
+                if (client_sessions[index].users[i] == -1)
+                {
+                    fprintf(stderr, "Found space...\n");
+                    client_sessions[index].users[i] = joiner->session_id;
+                    joiner->active = 1;
+                    joiner->chatRoom = &client_sessions[index];
+                    break;
+                }
+            }
+
+            // Send the user an acknowledgement...
+            char ACK[BUFFER_SIZE];
+            createSegment(ACK, JN_ACK, session_name);
+            send(socket, ACK, BUFFER_SIZE, 0);
+
+            return index;
+        }
+    }
+
+    // If we can't find tthe correct session then return a JN_NACK
+    char ACK[BUFFER_SIZE];
+    char msg[MAX_MSG];
+    strcpy(msg, session_name);
+    strcat(msg, ", cound not find session");
+
+    createSegment(ACK, JN_NACK, msg);
+    send(socket, ACK, BUFFER_SIZE, 0);
+    return -1;
+}
+
+//
+int leaveClientSession(char *session_name, int socket, struct user *leaver)
+{
+    // Find the correct session..
+    int index = 0;
+    for (; index < MAX_SESSIONS; index++)
+    {
+        fprintf(stderr, "Searching: %s %s\n", client_sessions[index].name, session_name);
+        if (strcmp(client_sessions[index].name, session_name) == 0)
+        {
+            // go through the list of users and remove them from the
+            // set, also make the user inacvtive
+            for (int i = 0; i < MAX_USERS; i++)
+            {
+                if (client_sessions[index].users[i] == leaver->session_id)
+                {
+                    fprintf(stderr, "Removing %s\n", leaver->name);
+                    // Remove the user from the list of active users
+                    client_sessions[index].users[i] = -1;
+                    leaver->active = -1;
+                    leaver->chatRoom = NULL;
+
+                    // Close the session if their are no users in this session...
+                    int active_users = 0;
+                    for (int j = 0; j < MAX_USERS; j++)
+                    {
+                        if (client_sessions[index].users[j] == -1)
+                        {
+                            active_users++;
+                        }
+                    }
+
+                    if (active_users == MAX_USERS)
+                    {
+                        closeSession(&client_sessions[index]);
+                        active_sessions--;
+                    }
+                    return index;
+                }
+            }
+        }
+    }
+
+    return -1;
+}
+
+//
+void query(int socket)
+{
+    char active_session_names[MAX_MSG];
+    char active_users[MAX_MSG];
+    memset(active_session_names, '\0', MAX_MSG);
+    memset(active_users, '\0', MAX_MSG);
+
+    // Go through all the active sessions and grab the names...
+    int found_sessions = 0;
+    for (int i = 0; i < MAX_SESSIONS; i++)
+    {
+        if (client_sessions[i].session_id >= 0)
+        {
+            if (found_sessions == 0)
+            {
+                strcpy(active_session_names, client_sessions[i].name);
+                strcat(active_session_names, ", ");
+            }
+            else
+            {
+                strcat(active_session_names, client_sessions[i].name);
+                strcat(active_session_names, ", ");
+            }
+
+            found_sessions++;
+        }
+    }
+
+    fprintf(stderr, "Active sessions: %s", active_session_names);
+
+    // Go through all the clients and grab them...
+    int found_users = 0;
+    for (int i = 0; i < MAX_USERS; i++)
+    {
+        if (clients[i].active > 0)
+        {
+            if (found_users == 0)
+            {
+                strcpy(active_users, clients[i].name);
+                strcat(active_users, ", ");
+            }
+            else
+            {
+                strcat(active_users, clients[i].name);
+                strcat(active_users, ", ");
+            }
+            found_users++;
+        }
+    }
+
+    fprintf(stderr, "Active users: %s", active_users);
+
+    // Now send some acknowledgements...
+    // Send the user an acknowledgement...
+    char ACK[BUFFER_SIZE];
+    char ACK_MSG[BUFFER_SIZE];
+
+    // Compose the ACK message
+    memset(ACK_MSG, '\0', BUFFER_SIZE);
+    strcpy(ACK_MSG, "Active sessions | ");
+
+    if (active_session_names[0] == '\0')
+    {
+        strcat(ACK_MSG, "None");
+    }
+    else
+    {
+        strcat(ACK_MSG, active_session_names);
+    }
+    strcat(ACK_MSG, "\nActive users | ");
+
+    if (active_users[0] == '\0')
+    {
+        strcat(ACK_MSG, "None");
+    }
+    else
+    {
+        strcat(ACK_MSG, active_users);
+    }
+
+    createSegment(ACK, QU_ACK, ACK_MSG);
+    fprintf(stderr, "%s\n", ACK);
+    send(socket, ACK, BUFFER_SIZE, 0);
+
+    return;
+}
+
+//
+void sendSessionMSG(int socket, struct user * sender, char * msg){
+
+    // Figure out which session the user is apart of...
+    int * users_in_session = sender->chatRoom->users;
+    char ACK[BUFFER_SIZE];
+    memset(ACK, '\0', BUFFER_SIZE);
+    int size = strlen(msg);
+    sprintf(ACK, "%d:%d:%s:%s", MESSAGE, size, sender->name, msg);
+
+    for (int i = 0; i < MAX_USERS; i++){
+        // If there are users active in this session then forward the message
+        if(users_in_session[i] != -1 && users_in_session[i] != sender->session_id){
+            fprintf(stderr, "Found a user! %d\n", users_in_session[i]);
+            
+            int user_id = users_in_session[i];
+
+            send(clients[user_id].sockfd, ACK, BUFFER_SIZE, 0);
+        }
+    }
+    return;
 }
