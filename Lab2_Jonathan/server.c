@@ -317,7 +317,6 @@ int decode_message(char* buf, int client_sockfd, struct client* clients, struct 
     return 0;
 }
 
-
 /*Adds client to client list, assigns one to client id (unassigned id), returns 0 if sucesssful, 
 -1 if client list is full*/
 int add_client(struct client* clients, int sockfd, char* ip_addr, int port) {
@@ -540,7 +539,6 @@ void query_sessions(struct session* sessions, struct client* clients, int client
     strncpy((char*)new_message.data, data_string, MAX_DATA);
     send_message(client_sockfd, new_message);
 }
-
 
 int main(int argc, char *argv[]){
     if (argc < 2){
