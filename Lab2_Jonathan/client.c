@@ -321,8 +321,7 @@ int main(int argc, char *argv[]){
                     break;
                 case QUIT :
                     if (!sockfd){
-                        printf("Error: No connection established\n");
-                        continue;
+                        return 0;
                     }
                     close(sockfd);
                     return 0;
