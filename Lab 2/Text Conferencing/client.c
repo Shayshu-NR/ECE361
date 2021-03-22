@@ -29,9 +29,8 @@ int main(int argc, char const *argv[])
 
     memset(current_session, '\0', MAX_SESSION);
 
-    // Create a read set for the client to receive 
+    // Create a read set for the client to receive
     // messages from a current session...
-
 
     // Now we have to wait till the user issues a command...
     while (texting > 0)
@@ -43,22 +42,26 @@ int main(int argc, char const *argv[])
         FD_SET(fileno(stdin), &read_fds);
 
         // Wait indefinetly for a message to be received...
-        if(socket_disc > 0){
+        if (socket_disc > 0)
+        {
 
             FD_SET(socket_disc, &read_fds);
             select(socket_disc + 1, &read_fds, NULL, NULL, NULL);
         }
-        else{
+        else
+        {
             select(fileno(stdin) + 1, &read_fds, NULL, NULL, NULL);
         }
 
         // Listen for any received messages on the client socket....
-        if(logged_in && FD_ISSET(socket_disc, &read_fds)){
+        if (logged_in && FD_ISSET(socket_disc, &read_fds))
+        {
             char new_msg[BUFFER_SIZE];
             memset(new_msg, '\0', BUFFER_SIZE);
             struct message new_user_msg;
 
-            if (recv(socket_disc, new_msg, BUFFER_SIZE, 0) < 0){
+            if (recv(socket_disc, new_msg, BUFFER_SIZE, 0) < 0)
+            {
                 fprintf(stderr, "Receive message error\n");
                 return 0;
             }
@@ -69,7 +72,8 @@ int main(int argc, char const *argv[])
             continue;
         }
 
-        else if(FD_ISSET(fileno(stdin), &read_fds)){
+        else if (FD_ISSET(fileno(stdin), &read_fds))
+        {
             scanf("%s", user_command);
 
             // Log the user in by sending a login segment to the server
@@ -83,7 +87,7 @@ int main(int argc, char const *argv[])
                 if ((rv = getaddrinfo(server_ip, port, &hints, &servinfo)) != 0)
                 {
                     fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-                    return 0;
+                    continue;
                 }
 
                 // loop through all the results and connect to the first we can
@@ -110,7 +114,7 @@ int main(int argc, char const *argv[])
                     return 0;
                 }
 
-                freeaddrinfo(servinfo); 
+                freeaddrinfo(servinfo);
 
                 login(PtoS, socket_disc);
             }
@@ -118,19 +122,27 @@ int main(int argc, char const *argv[])
             else if (strcmp(user_command, "/logout") == 0 && logged_in)
             {
                 //
-                if(current_session[0] != '\0'){
-                    fprintf(stderr, "Please leave your current session\n");
-                    continue;
+                if (current_session[0] != '\0')
+                {
+                    memset(leave_session_name, '\0', MAX_SESSION);
+                    leaveSession(PtoS, socket_disc, current_session);
                 }
+
                 logout(PtoS, socket_disc);
             }
 
             // Make sure to close stuff properly
             else if (strcmp(user_command, "/quit") == 0)
             {
-                if(logged_in){
-                    fprintf(stderr, "Please logout\n");
-                    continue;
+                if (logged_in)
+                {
+                    if (current_session[0] != '\0')
+                    {
+                        memset(leave_session_name, '\0', MAX_SESSION);
+                        leaveSession(PtoS, socket_disc, current_session);
+                    }
+
+                    logout(PtoS, socket_disc);
                 }
                 return 0;
             }
@@ -147,8 +159,9 @@ int main(int argc, char const *argv[])
 
             // Join a created session
             else if (strcmp(user_command, "/joinsession") == 0 && logged_in)
-            {   
-                if(current_session[0] != '\0'){
+            {
+                if (current_session[0] != '\0')
+                {
                     fprintf(stderr, "Please leave your current session....\n");
                     continue;
                 }
@@ -167,7 +180,8 @@ int main(int argc, char const *argv[])
             }
 
             // Get a list of the connected clients and available sessions
-            else if(strcmp(user_command, "/list") == 0  && logged_in){
+            else if (strcmp(user_command, "/list") == 0 && logged_in)
+            {
                 list(PtoS, socket_disc);
             }
 
@@ -178,16 +192,20 @@ int main(int argc, char const *argv[])
             }
 
             // Otherwise send a message
-            else {
-                if(strcmp(user_command, "/login") == 0){
+            else
+            {
+                if (strcmp(user_command, "/login") == 0)
+                {
                     fprintf(stderr, "Already logged in\n");
                 }
 
-                else if(current_session[0] == '\0'){
+                else if (current_session[0] == '\0')
+                {
                     fprintf(stderr, "Please join a session\n");
                 }
 
-                else{
+                else
+                {
                     memset(msg, '\0', MAX_MSG);
                     strcpy(msg, user_command);
 
@@ -202,6 +220,5 @@ int main(int argc, char const *argv[])
 
             memset(user_command, '\0', MAX_MSG);
         }
-
     }
 }
