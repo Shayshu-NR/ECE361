@@ -427,7 +427,7 @@ int leaveClientSession(char *session_name, int socket, struct user *leaver)
             int active_users = 0;
             for (int j = 0; j < MAX_USERS; j++)
             {
-                if (leaver->chatRoom->users[i] == -1)
+                if (leaver->chatRoom->users[j] == -1)
                 {
                     active_users++;
                 }
