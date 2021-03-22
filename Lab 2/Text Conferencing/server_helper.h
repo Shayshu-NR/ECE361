@@ -35,6 +35,7 @@ struct session {
     char name[MAX_SESSION];
     int users[MAX_USERS];
     int session_id;
+    int active;
 };
 
 struct user{

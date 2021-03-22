@@ -12,6 +12,7 @@
 #include "server_helper.h"
 // /login Bob Jim 128.100.13.246 1789
 // /login Shayshu password 128.100.13.246 1789
+// /login Hamid ece361 128.100.13.246 1789
 
 int main(int argc, char const *argv[])
 {
@@ -123,6 +124,7 @@ int main(int argc, char const *argv[])
         FD_ZERO(&read_fds);
         FD_SET(socket_disc, &read_fds);
 
+        // Only add active users to the read set 
         for (int i = 0; i < MAX_USERS; i++)
         {
             if (client_sockets[i] != -1)
@@ -136,7 +138,11 @@ int main(int argc, char const *argv[])
             }
         }
 
-        select(fdmax + 1, &read_fds, NULL, NULL, NULL);
+        // Add a listener 
+        if (select(fdmax + 1, &read_fds, NULL, NULL, NULL) < 0) {
+            fprintf(stderr, "Failed to select\n");
+            return 0;
+        } 
 
 
         // Client connecting...
@@ -164,16 +170,22 @@ int main(int argc, char const *argv[])
                 {
                     close(client_socket);
                 }
+                else{
+
+                }
             }
         }
         // Otherwise the client is sending the server
         // some data so parse it and then execute the correct command
         else
         {
+            // Check which client socket sent the data...
             for (int i = 0; i < MAX_USERS; i++)
             {
                 int client_socket = client_sockets[i];
 
+                // If the client socket is set and in the read set then 
+                // execute the given command
                 if (client_socket != -1 && FD_ISSET(client_socket, &read_fds))
                 {
 

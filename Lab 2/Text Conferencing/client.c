@@ -44,6 +44,7 @@ int main(int argc, char const *argv[])
 
         // Wait indefinetly for a message to be received...
         if(socket_disc > 0){
+
             FD_SET(socket_disc, &read_fds);
             select(socket_disc + 1, &read_fds, NULL, NULL, NULL);
         }
@@ -170,11 +171,13 @@ int main(int argc, char const *argv[])
                 list(PtoS, socket_disc);
             }
 
+            // Make sure the user is logged in
             else if (!logged_in)
             {
                 fprintf(stderr, "Please login...\n");
             }
 
+            // Otherwise send a message
             else {
                 if(strcmp(user_command, "/login") == 0){
                     fprintf(stderr, "Already logged in\n");
