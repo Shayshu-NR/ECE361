@@ -1,0 +1,287 @@
+#!/bin/bash
+#
+# Script for testing the TextConferencingLab on ECE361
+# The server should be running on a different terminal before running this script
+# The client executable should be in the same folder as the script
+#
+# Usage:
+# >>> ./testclient user1 password1 user2 password2 user3 password3 server_addr server_port
+#
+# Starts 3 clients and send a sequence of commands to each of them
+# The commands sent to client i are printed under a line "==== client i in ===="
+# The outputs of client i are printed under a line "==== client i out ===="
+#
+
+for i in 1 2 3 ; do
+	mkfifo c${i}_in c${i}_d
+
+	sleep 1000 > c${i}_d &
+	sleep 1000 > c${i}_in &
+
+	sed -u "i\==== client ${i} in ====" c${i}_d &
+
+	stdbuf -o0 ./client < c${i}_in | sed -u "i\==== client ${i} out ====" &
+done
+
+DELAY=1
+
+########################################
+# Test 1: login, logout and their corner cases
+########################################
+echo -e "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+echo "Test 1: login, logout and their corner cases, press any key to start..."
+read -n 1
+
+# login with incorrect password on client 1. Should fail
+echo "/login $1 not_the_password $7 $8" | tee c1_d > c1_in
+read -t $DELAY -n 1
+# login with correct password on client 1. Should succeed
+echo "/login $1 $2 $7 $8" | tee c1_d > c1_in
+read -t $DELAY -n 1
+
+# login on client 2 with a user that is already logged in. Should fail
+echo "/login $1 $2 $7 $8" | tee c2_d > c2_in
+read -t $DELAY -n 1
+# login with correct password on client 2. Should succeed
+echo "/login $3 $4 $7 $8" | tee c2_d > c2_in
+read -t $DELAY -n 1
+# logout on client 2. Should succeed
+echo "/logout" | tee c2_d > c2_in
+read -t $DELAY -n 1
+# login back on same user on client 2. Should succeed
+echo "/login $3 $4 $7 $8" | tee c2_d > c2_in
+read -t $DELAY -n 1
+
+# login with correct password on client 3. Should succeed
+echo "/login $5 $6 $7 $8" | tee c3_d > c3_in
+read -t $DELAY -n 1
+
+
+########################################
+# Test 2: createsession, list and their corner cases
+########################################
+echo -e "\n\n++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+echo "Test 2: createsession, list and their corner cases, press any key to start..."
+read -n 1
+
+# list on client 1. Should list all connected clients and available sessions, in
+# this case: user1, user2 and use3, no sessions
+echo "/list" | tee c1_d > c1_in
+read -t $DELAY -n 1
+# list on client 3. Should list all connected clients and available sessions, in
+# this case: user1, user2 and user3, no sessions
+echo "/list" | tee c3_d > c3_in
+read -t $DELAY -n 1
+# lougout on client 1. Should succeed
+echo "/logout" | tee c1_d > c1_in
+read -t $DELAY -n 1
+# list on client 3. Should list all connected clients and available sessions, in
+# this case: user2 and user3, no sessions
+echo "/list" | tee c3_d > c3_in
+read -t $DELAY -n 1
+# logout on client 3. Should succeed
+echo "/logout" | tee c3_d > c3_in
+read -t $DELAY -n 1
+# list on client 2. Should list all connected clients and available sessions, in
+# this case: user2, no sessions
+echo "/list" | tee c2_d > c2_in
+read -t $DELAY -n 1
+# login with correct password on client 1. Should succeed
+echo "/login $1 $2 $7 $8" | tee c1_d > c1_in
+read -t $DELAY -n 1
+# list on client 1. Should list all connected clients and available sessions, in
+# this case: user1, user2, no sessions
+echo "/list" | tee c1_d > c1_in
+read -t $DELAY -n 1
+
+# createsession on client 1. Should create and join a session called session1
+echo "/createsession session1" | tee c1_d > c1_in
+read -t $DELAY -n 1
+# list on client 1. Should list all connected clients and available sessions, in
+# this case: user1, user2, session1
+echo "/list" | tee c1_d > c1_in
+read -t $DELAY -n 1
+# createsession on client 2. Should create and join a session called session2
+echo "/createsession session2" | tee c2_d > c2_in
+read -t $DELAY -n 1
+# login with correct password on client 3. Should succeed
+echo "/login $5 $6 $7 $8" | tee c3_d > c3_in
+read -t $DELAY -n 1
+# list on client 3. Should list all connected clients and available sessions, in
+# this case: user1, user2 and user3, session1, session2
+echo "/list" | tee c3_d > c3_in
+read -t $DELAY -n 1
+# createsession on client 3. Should fail because session1 already exists
+echo "/createsession session1" | tee c3_d > c3_in
+read -t $DELAY -n 1
+
+
+########################################
+# Test 3: joinsession, leavesession and their corner cases
+########################################
+echo -e "\n\n++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+echo "Test 3: joinsession, leavesession and their corner cases, press any key to start..."
+read -n 1
+
+# leavesession on client 3. Shouldn't do anything since user3 is not in any session
+echo "/leavesession" | tee c3_d > c3_in
+read -t $DELAY -n 1
+# joinsession on client 3. Should fail since session3 does not exist.
+# it is ok if this action explicitly defaults to createsession
+echo "/joinsession session3" | tee c3_d > c3_in
+read -t $DELAY -n 1
+# leavesession on client 3. Just in case joinsession is creating sessions
+echo "/leavesession" | tee c3_d > c3_in
+read -t $DELAY -n 1
+
+# leavesession on client 1. This should succeed, user1 should leave
+# test_session and since the session is now empty it should be deleted
+echo "/leavesession" | tee c1_d > c1_in
+read -t $DELAY -n 1
+# list on client 2. Checking if session1 was deleted correctly
+echo "/list" | tee c2_d > c2_in
+read -t $DELAY -n 1
+# joinsession on client 3. Should fail since session1 should not exist.
+# it is ok if this action explicitly defaults to createsession
+echo "/joinsession session1" | tee c3_d > c3_in
+read -t $DELAY -n 1
+# leavesession on client 3. Just in case joinsession is creating sessions
+echo "/leavesession" | tee c3_d > c3_in
+read -t $DELAY -n 1
+
+# createsession on client 1. Should create and join a session called session1
+echo "/createsession session1" | tee c1_d > c1_in
+read -t $DELAY -n 1
+# joinsession on client 1. Should fail since user1 is already on session1
+echo "/joinsession session1" | tee c1_d > c1_in
+read -t $DELAY -n 1
+# joinsession on client 3. Should succeed and add user3 to session1
+echo "/joinsession session1" | tee c3_d > c3_in
+read -t $DELAY -n 1
+
+
+########################################
+# Test 4: message exchange and its corner cases
+########################################
+echo -e "\n\n++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+echo "Test 4: message exchange and its corner cases, press any key to start..."
+read -n 1
+
+# At this point we should have all 3 users logged in and 2 sessions created.
+# user1 and user3 should be on session1 and user 2 should be on session2
+echo "/list" | tee c1_d > c1_in
+read -t $DELAY -n 1
+
+# message sent from user3. Client 1 should receive the message and client 2
+# should not receive anything. Client 3 may echo the message
+echo "hello, my name is $5" | tee c3_d > c3_in
+read -t $DELAY -n 1
+# message sent from user1. Client 3 should receive the message and client 2
+# should not receive anything. Client 1 may echo the message
+echo "hello $5, my name is $1" | tee c1_d > c1_in
+read -t $DELAY -n 1
+echo "have you been able to successfully complete lab 4?" | tee c1_d > c1_in
+read -t $DELAY -n 1
+# message sent from user3. Client 1 should receive the message and client 2
+# should not receive anything. Client 1 may echo the message
+echo "I have completed it!" | tee c3_d > c3_in
+read -t $DELAY -n 1
+echo "Whether I was successful depends on these tests we are running now..." | tee c3_d > c3_in
+read -t $DELAY -n 1
+# leavesession on client 3. This should succeed
+echo "/leavesession" | tee c3_d > c3_in
+read -t $DELAY -n 1
+
+# message sent from user1. Clients 2 and 3 should not output anything
+echo "Oh no, my cursed question made $3 run away" | tee c1_d > c1_in
+read -t $DELAY -n 1
+
+
+# message sent from user3. Since user3 is not in any session this should fail
+echo "Can anyone hear me?" | tee c3_d > c3_in
+read -t $DELAY -n 1
+# message sent from user2. Clients 1 and 3 should not output anything
+echo "Is anyone here?" | tee c2_d > c2_in
+read -t $DELAY -n 1
+
+#move all users to session1
+echo "/leavesession" | tee c2_d > c2_in
+read -t $DELAY -n 1
+echo "/joinsession session1" | tee c2_d > c2_in
+read -t $DELAY -n 1
+echo "/joinsession session1" | tee c3_d > c3_in
+read -t $DELAY -n 1
+# message sent from user1. Clients 2 and 3 should receive it
+echo "Everyone is here, we are almost done!" | tee c1_d > c1_in
+read -t $DELAY -n 1
+# message sent from user2. Clients 1 and 3 should receive it
+echo "I am only here because I heard there was free food, where is it?" | tee c2_d > c2_in
+read -t $DELAY -n 1
+# message sent from user3. Clients 1 and 2 should receive it
+echo "The cake is a lie!" | tee c3_d > c3_in
+read -t $DELAY -n 1
+
+########################################
+# Test 5: Will it blend? That is the question
+########################################
+echo -e "\n\n++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+echo "Test 5: Will it blend? That is the question, press any key to start..."
+read -n 1
+
+# logout on client 2. This should work
+echo "/logout" | tee c2_d > c2_in
+read -t $DELAY -n 1
+# list on client 1. This should work and show user1, user2 and session1
+echo "/list" | tee c1_d > c1_in
+read -t $DELAY -n 1
+# message sent from user1. This should work
+echo "Looks like people are leaving now" | tee c1_d > c1_in
+read -t $DELAY -n 1
+
+# quit on client 3. This should work
+echo "/quit" | tee c3_d > c3_in
+read -t $DELAY -n 1
+# list on client 1. This should work and show user1, user2 and session1
+echo "/list" | tee c1_d > c1_in
+read -t $DELAY -n 1
+# login with correct password on client 2. Should succeed
+echo "/login $3 $4 $7 $8" | tee c2_d > c2_in
+read -t $DELAY -n 1
+# message sent from user1. This should work but no clients should receive this
+echo "Maybe I shouldn't have lied about the free food..." | tee c1_d > c1_in
+read -t $DELAY -n 1
+
+# restart client 3
+stdbuf -o0 ./client < c${i}_in | sed -u "i\==== client ${i} out ====" &
+# login with correct password on client 3. Should succeed
+echo "/login $5 $6 $7 $8" | tee c2_d > c2_in
+read -t $DELAY -n 1
+
+# move all clients to session 1
+echo "/joinsession session1" | tee c2_d > c2_in
+read -t $DELAY -n 1
+echo "/joinsession session1" | tee c3_d > c3_in
+read -t $DELAY -n 1
+
+# message sent from user2. All clients should receive this message
+echo "I brought some cake" | tee c2_d > c2_in
+read -t $DELAY -n 1
+
+# kill client 3, this should not break the server
+kill %+
+
+# list on client 1. This should work and show user1, user2 and session1
+echo "/list" | tee c1_d > c1_in
+read -t $DELAY -n 1
+# message sent from user1. Client 2 should receive this
+echo "We are finally done. Time to go home" | tee c2_d > c2_in
+read -t $DELAY -n 1
+
+# quit all clients
+echo "/quit" | tee c1_d > c1_in
+echo "/quit" | tee c2_d > c2_in
+read -t $DELAY -n 1
+
+#kill alll the processes we started and delete all the pipes
+kill $(jobs -p)
+rm c?_in  c?_d

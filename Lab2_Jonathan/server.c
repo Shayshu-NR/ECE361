@@ -188,6 +188,18 @@ int decode_message(char* buf, int client_sockfd, struct client* clients, struct 
             }
             client_id = atoi((char*)message.source);
             if (check_password(client_id, (char*)message.data)==0){
+                for (int i=0;i<MAX_CLIENTS;i++){
+                    if (clients[i].client_id==client_id){
+                            /*already logged in*/
+                            new_message.type = LO_NAK;
+                            strcpy(data_string, "Already logged in.");
+                            new_message.size = strlen(data_string);
+                            strncpy((char*)new_message.source, (char*)message.source, MAX_NAME);
+                            strncpy((char*)new_message.data, data_string, MAX_DATA);
+                            send_message(client_sockfd, new_message);
+                            return 0;
+                    }
+                }
                 /*password correct*/
                 for (int i=0;i<MAX_CLIENTS;i++){
                     if (clients[i].client_id!=0){
@@ -258,12 +270,17 @@ int decode_message(char* buf, int client_sockfd, struct client* clients, struct 
             send_message(client_sockfd, new_message);
             break;
         case LEAVE_SESS:
-            if (rv<4){
-                printf("Error decoding message!\n");
-                return -1;
-            }
-            session_id = atoi((char*)message.data);
+            //session_id = atoi((char*)message.data);
             client_id = atoi((char*)message.source);
+            for (int i=0;i<MAX_CLIENTS;i++){
+                if (clients[i].sockfd==client_sockfd){
+                    for (int j=0;j<MAX_SESSIONS;j++){
+                        if (clients[i].sessions[j]!=0){
+                            session_id = clients[i].sessions[j];
+                        }
+                    }
+                }
+            }
             result = leave_session(sessions, clients, session_id, client_id);
             if (verbose){
                 if (result<0){

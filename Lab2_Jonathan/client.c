@@ -13,6 +13,40 @@
 #include <signal.h>
 #include "structs.h"
 
+#define HASH_KEY 100000000 //100 mil, random medium sized prime number;
+
+/*The following hash function is not the property of the student Jonathan Yan,
+it has been taken from https://www.cs.yale.edu/homes/aspnes/pinewiki/C(2f)HashTables.html?highlight=%28CategoryAlgorithmNotes%29#:~:text=A%20hash%20table%20is%20a,store%20and%20retrieve%20the%20data.
+*/
+
+/* treat strings as base-256 integers */
+/* with digits in the range 1 to 255 */
+#define BASE (256)
+
+unsigned long hashing(const char *s, unsigned long m)
+{
+    unsigned long h;
+    unsigned const char *us;
+
+    /* cast s to unsigned const char * */
+    /* this ensures that elements of s will be treated as having values >= 0 */
+    us = (unsigned const char *) s;
+
+    h = 0;
+    while(*us != '\0') {
+        h = (h * BASE + *us) % m;
+        us++;
+    } 
+
+    return h;
+}
+
+void get_num (char* string_name, char* string_num){
+    int num = hashing(string_name, HASH_KEY);
+    sprintf(string_num,"%d", num);
+    return;
+}
+
 bool verbose=false;
 int create_socket(char* server_addr, char* server_port);
 int send_message(int client_sockfd, struct message message);
@@ -185,12 +219,8 @@ enum client_command get_command (char* client_keyword){
     else if (strcmp(client_keyword, "/quit")==0){
         client_command = QUIT;
     }
-    else if (strcmp(client_keyword, "TEXT")==0){
-        client_command = TEXT;
-    }
     else {
-        printf("Not a valid command!\n");
-        client_command = NONE;
+        client_command = TEXT;
     }
     return client_command;
 }
@@ -230,6 +260,7 @@ int main(int argc, char *argv[]){
 
             char client_id [MAX_CLIENT_INPUT];
             char client_input [MAX_CLIENT_INPUT];
+            char client_input2 [MAX_CLIENT_INPUT];
             struct message message;
             char empty_string[] = "";
             switch (client_command) {
@@ -272,10 +303,11 @@ int main(int argc, char *argv[]){
                         printf("Error getting input\n");
                         return -1;
                     }
+                    get_num(client_input, client_input2);
                     message.type = JOIN;
-                    message.size = strlen(client_input);
+                    message.size = strlen(client_input2);
                     strncpy((char*)message.source, client_id, MAX_NAME);
-                    strncpy((char*)message.data, client_input, MAX_DATA);
+                    strncpy((char*)message.data, client_input2, MAX_DATA);
                     send_message(sockfd, message);         
                     break;
                 case LEAVESESSION :
@@ -283,14 +315,10 @@ int main(int argc, char *argv[]){
                         printf("Error: No connection established\n");
                         continue;
                     }
-                    if (scanf("%s", client_input)==EOF){
-                        printf("Error getting input\n");
-                        return -1;
-                    }
                     message.type = LEAVE_SESS;
-                    message.size = strlen(client_input);
+                    message.size = 0;
                     strncpy((char*)message.source, client_id, MAX_NAME);
-                    strncpy((char*)message.data, client_input, MAX_DATA);
+                    strncpy((char*)message.data, empty_string, MAX_DATA);
                     send_message(sockfd, message);
                     break;
                 case CREATSESSION :
@@ -302,11 +330,14 @@ int main(int argc, char *argv[]){
                         printf("Error getting input\n");
                         return -1;
                     }
+                    get_num(client_input, client_input2);
                     message.type = NEW_SESS;
-                    message.size = strlen(client_input);
+                    message.size = strlen(client_input2);
                     strncpy((char*)message.source, client_id, MAX_NAME);
-                    strncpy((char*)message.data, client_input, MAX_DATA);
+                    strncpy((char*)message.data, client_input2, MAX_DATA);
                     send_message(sockfd, message);  
+                    message.type = JOIN;
+                    send_message(sockfd, message);
                     break;
                 case LIST :
                     if (!sockfd){
@@ -334,10 +365,12 @@ int main(int argc, char *argv[]){
                         printf("Error getting input\n");
                         return -1;
                     }
+                    strcat(client_input2, client_keyword);
+                    strcat(client_input2, client_input);
                     message.type = MESSAGE;
-                    message.size = strlen(client_input);
+                    message.size = strlen(client_input2);
                     strncpy((char*)message.source, client_id, MAX_NAME);
-                    strncpy((char*)message.data, client_input, MAX_DATA);
+                    strncpy((char*)message.data, client_input2, MAX_DATA);
                     send_message(sockfd, message);
                     break;
                 default :
