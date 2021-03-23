@@ -11,6 +11,7 @@
 #define BACKLOG 10
 #define BUFLEN 1000
 #define MAX_WAIT_TIME 1
+#define MAX_ID 20
 #define STDIN 0
 
 struct message {
@@ -21,7 +22,7 @@ struct message {
 };
 
 struct login {
-    uint32_t id;
+    char id[MAX_ID];
     char password [MAX_PASSWORD];
 };
 
@@ -34,15 +35,19 @@ enum client_command {
 };
 
 /*an instance of a session, has a list of clients_id belonging to the session
-session_id > 0 and clients_id > 0 */
+session_id is a string and clients is indexes 0 to MAX_CLIENTS -1, 
+clients -1 means not a client */
 struct session {
-    uint32_t session_id;
+    char session_id[MAX_ID];
     uint32_t clients[MAX_CLIENTS];
 };
 
-/*a connected client on the server and a list of sessions it is in */
+/*a connected client on the server and a list of sessions it is in 
+client_id is a string and sessions is indexes 0 to MAX_SESSIONS -1,
+client_id is 'USER' if connection is established but not logged in
+sessions -1 means means not a session*/
 struct client {
-    uint32_t client_id;
+    char client_id[MAX_ID];
     int sockfd;
     char ip_addr [INET_ADDRSTRLEN];
     int port;
