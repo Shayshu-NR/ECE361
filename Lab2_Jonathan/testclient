@@ -131,12 +131,12 @@ read -t $DELAY -n 1
 echo "/joinsession session3" | tee c3_d > c3_in
 read -t $DELAY -n 1
 # leavesession on client 3. Just in case joinsession is creating sessions
-echo "/leavesession" | tee c3_d > c3_in
+echo "/leavesession session1" | tee c3_d > c3_in
 read -t $DELAY -n 1
 
 # leavesession on client 1. This should succeed, user1 should leave
 # test_session and since the session is now empty it should be deleted
-echo "/leavesession" | tee c1_d > c1_in
+echo "/leavesession session1" | tee c1_d > c1_in
 read -t $DELAY -n 1
 # list on client 2. Checking if session1 was deleted correctly
 echo "/list" | tee c2_d > c2_in
@@ -174,51 +174,51 @@ read -t $DELAY -n 1
 
 # message sent from user3. Client 1 should receive the message and client 2
 # should not receive anything. Client 3 may echo the message
-echo "hello, my name is $5" | tee c3_d > c3_in
+echo "session1 hello, my name is $5" | tee c3_d > c3_in
 read -t $DELAY -n 1
 # message sent from user1. Client 3 should receive the message and client 2
 # should not receive anything. Client 1 may echo the message
-echo "hello $5, my name is $1" | tee c1_d > c1_in
+echo "session1 hello $5, my name is $1" | tee c1_d > c1_in
 read -t $DELAY -n 1
-echo "have you been able to successfully complete lab 4?" | tee c1_d > c1_in
+echo "session1 have you been able to successfully complete lab 4?" | tee c1_d > c1_in
 read -t $DELAY -n 1
 # message sent from user3. Client 1 should receive the message and client 2
 # should not receive anything. Client 1 may echo the message
-echo "I have completed it!" | tee c3_d > c3_in
+echo "session1 I have completed it!" | tee c3_d > c3_in
 read -t $DELAY -n 1
-echo "Whether I was successful depends on these tests we are running now..." | tee c3_d > c3_in
+echo "session1 Whether I was successful depends on these tests we are running now..." | tee c3_d > c3_in
 read -t $DELAY -n 1
 # leavesession on client 3. This should succeed
-echo "/leavesession" | tee c3_d > c3_in
+echo "/leavesession session1" | tee c3_d > c3_in
 read -t $DELAY -n 1
 
 # message sent from user1. Clients 2 and 3 should not output anything
-echo "Oh no, my cursed question made $3 run away" | tee c1_d > c1_in
+echo "session1 Oh no, my cursed question made $3 run away" | tee c1_d > c1_in
 read -t $DELAY -n 1
 
 
 # message sent from user3. Since user3 is not in any session this should fail
-echo "Can anyone hear me?" | tee c3_d > c3_in
+echo "session1 Can anyone hear me?" | tee c3_d > c3_in
 read -t $DELAY -n 1
 # message sent from user2. Clients 1 and 3 should not output anything
-echo "Is anyone here?" | tee c2_d > c2_in
+echo "session2 Is anyone here?" | tee c2_d > c2_in
 read -t $DELAY -n 1
 
 #move all users to session1
-echo "/leavesession" | tee c2_d > c2_in
+echo "/leavesession session2" | tee c2_d > c2_in
 read -t $DELAY -n 1
 echo "/joinsession session1" | tee c2_d > c2_in
 read -t $DELAY -n 1
 echo "/joinsession session1" | tee c3_d > c3_in
 read -t $DELAY -n 1
 # message sent from user1. Clients 2 and 3 should receive it
-echo "Everyone is here, we are almost done!" | tee c1_d > c1_in
+echo "session1 Everyone is here, we are almost done!" | tee c1_d > c1_in
 read -t $DELAY -n 1
 # message sent from user2. Clients 1 and 3 should receive it
-echo "I am only here because I heard there was free food, where is it?" | tee c2_d > c2_in
+echo "session1 I am only here because I heard there was free food, where is it?" | tee c2_d > c2_in
 read -t $DELAY -n 1
 # message sent from user3. Clients 1 and 2 should receive it
-echo "The cake is a lie!" | tee c3_d > c3_in
+echo "session1 The cake is a lie!" | tee c3_d > c3_in
 read -t $DELAY -n 1
 
 ########################################
@@ -264,7 +264,7 @@ echo "/joinsession session1" | tee c3_d > c3_in
 read -t $DELAY -n 1
 
 # message sent from user2. All clients should receive this message
-echo "I brought some cake" | tee c2_d > c2_in
+echo "session1 I brought some cake" | tee c2_d > c2_in
 read -t $DELAY -n 1
 
 # kill client 3, this should not break the server
@@ -274,7 +274,7 @@ kill %+
 echo "/list" | tee c1_d > c1_in
 read -t $DELAY -n 1
 # message sent from user1. Client 2 should receive this
-echo "We are finally done. Time to go home" | tee c2_d > c2_in
+echo "session1 We are finally done. Time to go home" | tee c2_d > c2_in
 read -t $DELAY -n 1
 
 # quit all clients

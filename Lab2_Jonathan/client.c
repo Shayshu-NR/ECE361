@@ -13,45 +13,11 @@
 #include <signal.h>
 #include "structs.h"
 
-#define HASH_KEY 100000000 //100 mil, random medium sized prime number;
-
-/*The following hash function is not the property of the student Jonathan Yan,
-it has been taken from https://www.cs.yale.edu/homes/aspnes/pinewiki/C(2f)HashTables.html?highlight=%28CategoryAlgorithmNotes%29#:~:text=A%20hash%20table%20is%20a,store%20and%20retrieve%20the%20data.
-*/
-
-/* treat strings as base-256 integers */
-/* with digits in the range 1 to 255 */
-#define BASE (256)
-
-unsigned long hashing(const char *s, unsigned long m)
-{
-    unsigned long h;
-    unsigned const char *us;
-
-    /* cast s to unsigned const char * */
-    /* this ensures that elements of s will be treated as having values >= 0 */
-    us = (unsigned const char *) s;
-
-    h = 0;
-    while(*us != '\0') {
-        h = (h * BASE + *us) % m;
-        us++;
-    } 
-
-    return h;
-}
-
-void get_num (char* string_name, char* string_num){
-    int num = hashing(string_name, HASH_KEY);
-    sprintf(string_num,"%d", num);
-    return;
-}
-
 bool verbose=false;
 int create_socket(char* server_addr, char* server_port);
 int send_message(int client_sockfd, struct message message);
-int receive_message(int client_sockfd);
-int decode_message(char* buf);
+int receive_message(int* client_sockfd, char* client_id, char* session_inv);
+int decode_message(char* buf, char* client_id, char* session_inv, int* client_sockfd);
 enum client_command get_command (char* client_keyword);
 
 /*Creates socket with a given address and ip for TCP, returns sockfd*/
@@ -114,10 +80,10 @@ int send_message(int client_sockfd, struct message message) {
 }
 
 /*Receives message from server, returns number of bytes sent*/
-int receive_message(int client_sockfd){
+int receive_message(int* client_sockfd, char* client_id, char* session_inv){
     char buf [BUFLEN];
     int numbytes;
-    if ((numbytes = recv(client_sockfd, buf, BUFLEN, 0)) == -1) {
+    if ((numbytes = recv(*client_sockfd, buf, BUFLEN, 0)) == -1) {
         perror("talker: recv");
         exit(1);
     }
@@ -126,18 +92,18 @@ int receive_message(int client_sockfd){
         if (verbose){
             printf("Server timed out.\n");
         }
-        close(client_sockfd);
+        close(*client_sockfd);
         exit(-1);
     }
     if (verbose){
         printf("Message received: %s\n", buf);
     }
-    decode_message(buf);
+    decode_message(buf, client_id, session_inv, client_sockfd);
     return numbytes;
 }
 
 /*Decodes message that server sent*/
-int decode_message(char* buf){
+int decode_message(char* buf, char* client_id, char* session_inv, int* client_sockfd){
     struct message message;
     int rv = sscanf(buf, "%u%u%s%*c%[^\n]", &message.type, &message.size, message.source,
         message.data);
@@ -145,9 +111,12 @@ int decode_message(char* buf){
         printf("Error decoding message!\n");
         return -1;
     }
+    char* session_id;
+    char* text_message;
     switch (message.type){
         case LO_ACK : 
             printf("Successfully logged in.\n");
+            strncpy(client_id, (char*)message.source, MAX_ID);
             break;
         case LO_NAK:
             if (rv<4){
@@ -182,10 +151,42 @@ int decode_message(char* buf){
                 printf("Error decoding message!\n");
                 return -1;
             }
-            printf("Message from %s: %s\n", message.source, message.data);
+            session_id = malloc(sizeof(char)*MAX_ID);
+            text_message = malloc(sizeof(char)*MAX_DATA);
+            rv = sscanf((char*)message.data, "%s%*c%[^\n]", session_id, text_message);
+            if (rv<2){
+                printf("Error decoding message!\n");
+                return -1;
+            }
+            printf("In Session: %s. Message from %s: %s\n", session_id, message.source, text_message);
+            free(session_id);
+            free(text_message);
             break;
         case QU_ACK:
             printf("%s\n",message.data);
+            break;
+        case INV_RECV:
+            session_id = malloc(sizeof(char)*MAX_ID);
+            text_message = malloc(sizeof(char)*MAX_DATA);
+            rv = sscanf((char*)message.data,"%s%s", text_message, session_id);
+            if (rv<2){
+                printf("Error decoding message!\n");
+                return -1;
+            }
+            strncpy(session_inv, session_id, MAX_ID);
+            printf("Invite from %s: join server '%s'. Type /accept to accept.\n", message.source, session_id);
+            free(session_id);
+            free(text_message);
+            break;
+        case INV_ACK:
+            printf("Invite sent succesfully.\n");
+            break;
+        case INV_NAK:
+            printf("Invite failed: %s\n", message.data);
+            break;
+        case TIMEOUT:
+            printf("Client timeout from server. Please login again to continue.\n");
+            *client_sockfd = 0;
             break;
         default:
             printf("Error decoding message!\n");
@@ -218,6 +219,15 @@ enum client_command get_command (char* client_keyword){
     }
     else if (strcmp(client_keyword, "/quit")==0){
         client_command = QUIT;
+    } 
+    else if (strcmp(client_keyword, "/inv")==0){
+        client_command = INV;
+    }
+    else if (strcmp(client_keyword, "/accept")==0){
+        client_command = ACCEPT;
+    }
+    else if (strcmp(client_keyword, "/reject")==0){
+        client_command = REJECT;
     }
     else {
         client_command = TEXT;
@@ -231,9 +241,10 @@ int main(int argc, char *argv[]){
         verbose = true;
     }
     int sockfd=0;
+    char client_id [MAX_ID]={0};
+    char session_inv [MAX_ID] = {0};
 
     while (true){
-        fflush(stdin);
         fd_set readfds;
         FD_ZERO(&readfds);
         FD_SET(STDIN, &readfds);
@@ -246,7 +257,7 @@ int main(int argc, char *argv[]){
         /*select returns*/
         if (sockfd){
             if (FD_ISSET(sockfd, &readfds)){
-                receive_message(sockfd);
+                receive_message(&sockfd, client_id, session_inv);
             }
         }
         if (FD_ISSET(STDIN, &readfds)){
@@ -258,17 +269,16 @@ int main(int argc, char *argv[]){
 
             enum client_command client_command = get_command(client_keyword);
 
-            char client_id [MAX_CLIENT_INPUT];
-            char client_input [MAX_CLIENT_INPUT];
-            char client_input2 [MAX_CLIENT_INPUT];
-            struct message message;
+            char client_input [MAX_CLIENT_INPUT]={0};
+            char client_input2 [MAX_CLIENT_INPUT]={0};
+            struct message message={0};
             char empty_string[] = "";
             switch (client_command) {
                 case LOGIN : ;
                     char password [MAX_PASSWORD];
                     char server_ip [INET_ADDRSTRLEN];
                     char port [MAX_CLIENT_INPUT];
-                    if (scanf("%s %s %s %s", client_id, password, server_ip, port)==EOF){
+                    if (scanf("%s %s %s %s", client_input, password, server_ip, port)==EOF){
                         printf("Error getting input\n");
                         return -1;
                     }
@@ -277,7 +287,7 @@ int main(int argc, char *argv[]){
                     }
                     message.type = LOGON;
                     message.size = strlen(password);
-                    strncpy((char*)message.source, client_id, MAX_NAME);
+                    strncpy((char*)message.source, client_input, MAX_NAME);
                     strncpy((char*)message.data, password, MAX_DATA);
                     send_message(sockfd, message);
                     break;
@@ -303,11 +313,10 @@ int main(int argc, char *argv[]){
                         printf("Error getting input\n");
                         return -1;
                     }
-                    get_num(client_input, client_input2);
                     message.type = JOIN;
-                    message.size = strlen(client_input2);
+                    message.size = strlen(client_input);
                     strncpy((char*)message.source, client_id, MAX_NAME);
-                    strncpy((char*)message.data, client_input2, MAX_DATA);
+                    strncpy((char*)message.data, client_input, MAX_DATA);
                     send_message(sockfd, message);         
                     break;
                 case LEAVESESSION :
@@ -315,10 +324,14 @@ int main(int argc, char *argv[]){
                         printf("Error: No connection established\n");
                         continue;
                     }
+                    if (scanf("%s", client_input)==EOF){
+                        printf("Error getting input\n");
+                        return -1;
+                    }
                     message.type = LEAVE_SESS;
-                    message.size = 0;
+                    message.size = strlen(client_input);
                     strncpy((char*)message.source, client_id, MAX_NAME);
-                    strncpy((char*)message.data, empty_string, MAX_DATA);
+                    strncpy((char*)message.data, client_input, MAX_DATA);
                     send_message(sockfd, message);
                     break;
                 case CREATSESSION :
@@ -330,11 +343,10 @@ int main(int argc, char *argv[]){
                         printf("Error getting input\n");
                         return -1;
                     }
-                    get_num(client_input, client_input2);
                     message.type = NEW_SESS;
-                    message.size = strlen(client_input2);
+                    message.size = strlen(client_input);
                     strncpy((char*)message.source, client_id, MAX_NAME);
-                    strncpy((char*)message.data, client_input2, MAX_DATA);
+                    strncpy((char*)message.data, client_input, MAX_DATA);
                     send_message(sockfd, message);  
                     message.type = JOIN;
                     send_message(sockfd, message);
@@ -365,7 +377,9 @@ int main(int argc, char *argv[]){
                         printf("Error getting input\n");
                         return -1;
                     }
+                    //client keyword is session ID
                     strcat(client_input2, client_keyword);
+                    strcat(client_input2, " ");
                     strcat(client_input2, client_input);
                     message.type = MESSAGE;
                     message.size = strlen(client_input2);
@@ -373,9 +387,39 @@ int main(int argc, char *argv[]){
                     strncpy((char*)message.data, client_input2, MAX_DATA);
                     send_message(sockfd, message);
                     break;
+                case INV:
+                    if (scanf("%s%s", client_input, client_input2)==EOF){
+                        printf("Error getting input\n");
+                        return -1;
+                    }
+                    message.type = INV_SEND;
+                    strcat(client_input, " ");
+                    strcat(client_input, client_input2);
+                    message.size = strlen(client_input);
+                    strncpy((char*)message.source, client_id, MAX_NAME);
+                    strncpy((char*)message.data, client_input, MAX_DATA);
+                    send_message(sockfd, message);
+                    break;
+                case ACCEPT:
+                    if (strncmp(session_inv, "", MAX_ID)!=0){
+                        message.type = JOIN;
+                        message.size = strlen(session_inv);
+                        strncpy((char*)message.source, client_id, MAX_NAME);
+                        strncpy((char*)message.data, session_inv, MAX_DATA);
+                        send_message(sockfd, message);   
+                    } else {
+                        printf("No valid session invite.\n");
+                    }
+                    break;
+                case REJECT:
+                    printf("Invite rejected.\n");
+                    strcpy(session_inv,"");
+                    break;
                 default :
                     break;
             } //Switch case
+            int ch;
+            while ((ch = getchar()) != '\n' && ch != EOF);
         } //FDISSET(STDIN)
     } //While LOOP
     return 0;
