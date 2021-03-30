@@ -9,6 +9,18 @@
 #include <stdbool.h>
 #include "client_helper.h"
 
+int noSession()
+{
+    for (int i = 0; i < MAX_SESSIONS; i++)
+    {
+        if (current_session[i][0] != '\0')
+        {
+            return 1;
+        }
+    }
+    return -1;
+}
+
 int main(int argc, char const *argv[])
 {
 
@@ -68,7 +80,23 @@ int main(int argc, char const *argv[])
 
             parseBuffer(new_msg, &new_user_msg);
 
-            fprintf(stderr, "%s: %s", new_user_msg.source, new_user_msg.data);
+            // Check what type of message was received...
+            if(new_user_msg.type == MESSAGE){
+                fprintf(stderr, "%s: %s", new_user_msg.source, new_user_msg.data);
+            }
+            else if(new_user_msg.type == NEW_INV){
+                fprintf(stderr, "%s invited you to join session %s. y or n?\n", new_user_msg.data, new_user_msg.session);
+                char response[MAX_MSG];
+                scanf("%s", response);
+                
+                if(strcmp(response, "y") == 0 || strcmp(response, " yes") == 0){
+                    memset(join_session_name, '\0', MAX_SESSION);
+                    strcpy(join_session_name, new_user_msg.session);
+
+                    joinSession(PtoS, socket_disc, join_session_name);
+                }
+            }
+
             continue;
         }
 
@@ -122,12 +150,18 @@ int main(int argc, char const *argv[])
             else if (strcmp(user_command, "/logout") == 0 && logged_in)
             {
                 //
-                if (current_session[0] != '\0')
+                if (noSession() > 0)
                 {
-                    memset(leave_session_name, '\0', MAX_SESSION);
-                    leaveSession(PtoS, socket_disc, current_session);
+                    for (int i = 0; i < MAX_SESSIONS; i++)
+                    {
+                        if(current_session[i][0] != '\0'){
+                            memset(leave_session_name, '\0', MAX_SESSION);
+                            strcpy(leave_session_name, current_session[i]);
+                            leaveSession(PtoS, socket_disc, leave_session_name);
+                        }
+                    }
+                    sleep(1);
                 }
-
                 logout(PtoS, socket_disc);
             }
 
@@ -136,12 +170,18 @@ int main(int argc, char const *argv[])
             {
                 if (logged_in)
                 {
-                    if (current_session[0] != '\0')
+                    if (noSession() > 0)
                     {
-                        memset(leave_session_name, '\0', MAX_SESSION);
-                        leaveSession(PtoS, socket_disc, current_session);
+                        for (int i = 0; i < MAX_SESSIONS; i++)
+                        {
+                            if(current_session[i][0] != '\0'){
+                            memset(leave_session_name, '\0', MAX_SESSION);
+                            strcpy(leave_session_name, current_session[i]);
+                            leaveSession(PtoS, socket_disc, leave_session_name);
+                        }
+                        }
+                        sleep(1);
                     }
-
                     logout(PtoS, socket_disc);
                 }
                 return 0;
@@ -150,21 +190,16 @@ int main(int argc, char const *argv[])
             // Create a new session
             else if (strcmp(user_command, "/createsession") == 0 && logged_in)
             {
+                memset(session_name, '\0', MAX_SESSION);
                 fprintf(stderr, "Enter the session name you'd like to create:\n");
                 scanf("%s", session_name);
 
-                fprintf(stderr, "%d\n", socket_disc);
                 createSession(PtoS, socket_disc);
             }
 
             // Join a created session
             else if (strcmp(user_command, "/joinsession") == 0 && logged_in)
             {
-                if (current_session[0] != '\0')
-                {
-                    fprintf(stderr, "Please leave your current session....\n");
-                    continue;
-                }
                 memset(join_session_name, '\0', MAX_SESSION);
                 fprintf(stderr, "Which session would you like to join?\n");
                 scanf("%s", join_session_name);
@@ -173,10 +208,17 @@ int main(int argc, char const *argv[])
             }
 
             // Leave the current session
-            else if (strcmp(user_command, "/leavesession") == 0 && logged_in && current_session[0] != '\0')
+            else if (strcmp(user_command, "/leavesession") == 0 && logged_in)
             {
                 memset(leave_session_name, '\0', MAX_SESSION);
-                leaveSession(PtoS, socket_disc, current_session);
+                fprintf(stderr, "Which session would you like to leave?\n");
+                scanf("%s", leave_session_name);
+
+                if (noSession() < 0)
+                {
+                    continue;
+                }
+                leaveSession(PtoS, socket_disc, leave_session_name);
             }
 
             // Get a list of the connected clients and available sessions
@@ -185,10 +227,19 @@ int main(int argc, char const *argv[])
                 list(PtoS, socket_disc);
             }
 
-            // Make sure the user is logged in
-            else if (!logged_in)
-            {
-                fprintf(stderr, "Please login...\n");
+            // Invite a user to the session...
+            else if (strcmp(user_command, "/invite") == 0 && logged_in){
+                if (noSession() < 0)
+                {
+                    fprintf(stderr, "Please join a session\n");
+                }
+                else{
+                    memset(invite_user, '\0', MAX_NAME);
+                    memset(invite_session, '\0', MAX_SESSION);
+                    fprintf(stderr, "Which user? Which session?\n");
+                    scanf("%s %s", invite_user, invite_session);
+                    inviteSession(PtoS, socket_disc, invite_user, invite_session);
+                }
             }
 
             // Otherwise send a message
@@ -198,8 +249,12 @@ int main(int argc, char const *argv[])
                 {
                     fprintf(stderr, "Already logged in\n");
                 }
+                else if (!logged_in)
+                {
+                    fprintf(stderr, "Please login...\n");
+                }
 
-                else if (current_session[0] == '\0')
+                else if (noSession() < 0)
                 {
                     fprintf(stderr, "Please join a session\n");
                 }
@@ -219,6 +274,7 @@ int main(int argc, char const *argv[])
             }
 
             memset(user_command, '\0', MAX_MSG);
+            fflush(stdin);
         }
     }
 }

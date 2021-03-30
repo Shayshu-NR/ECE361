@@ -10,9 +10,9 @@
 #include <stdbool.h>
 #include <arpa/inet.h>
 #include "server_helper.h"
-// /login Bob Jim 128.100.13.246 1789
-// /login Shayshu password 128.100.13.246 1789
-// /login Hamid ece361 128.100.13.246 1789
+// /login Bob Jim 128.100.13.227 1789
+// /login Shayshu password 128.100.13.227 1789
+// /login Hamid ece361 128.100.13.227 1789
 
 int main(int argc, char const *argv[])
 {
@@ -69,7 +69,9 @@ int main(int argc, char const *argv[])
         clients[i].active = -1;
         clients[i].session_id = i;
 
-        clients[i].chatRoom = NULL;
+        for (int j = 0; j < MAX_SESSIONS; j++){
+            clients[i].chatRoom[j] = NULL;
+        }
     }
 
     // Get port number
@@ -81,24 +83,29 @@ int main(int argc, char const *argv[])
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 
-    if((rv = getaddrinfo(NULL, argv[1], &hints, &servinfo)) != 0){
+    if ((rv = getaddrinfo(NULL, argv[1], &hints, &servinfo)) != 0)
+    {
         fprintf(stderr, "Get server address error\n");
         return 0;
     }
 
-    for (p = servinfo; p != NULL; p = p->ai_next){
-        if((socket_disc = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
+    for (p = servinfo; p != NULL; p = p->ai_next)
+    {
+        if ((socket_disc = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+        {
             continue;
         }
 
-        if(bind(socket_disc, p->ai_addr, p->ai_addrlen) == -1){
+        if (bind(socket_disc, p->ai_addr, p->ai_addrlen) == -1)
+        {
             close(socket_disc);
             continue;
         }
         break;
     }
 
-    if(p == NULL){
+    if (p == NULL)
+    {
         fprintf(stderr, "Failed to bind\n");
         return 0;
     }
@@ -124,26 +131,24 @@ int main(int argc, char const *argv[])
         FD_ZERO(&read_fds);
         FD_SET(socket_disc, &read_fds);
 
-        // Only add active users to the read set 
+        // Only add active users to the read set
         for (int i = 0; i < MAX_USERS; i++)
         {
-            if (client_sockets[i] != -1)
-            {
-                FD_SET(client_sockets[i], &read_fds);
+            if(clients[i].active == 1){
+                FD_SET(clients[i].sockfd, &read_fds);
 
-                if (client_sockets[i] > fdmax)
-                {
-                    fdmax = client_sockets[i];
+                if(clients[i].sockfd > fdmax){
+                    fdmax = clients[i].sockfd;
                 }
             }
         }
 
-        // Add a listener 
-        if (select(fdmax + 1, &read_fds, NULL, NULL, NULL) < 0) {
+        // Add a listener
+        if (select(fdmax + 1, &read_fds, NULL, NULL, NULL) < 0)
+        {
             fprintf(stderr, "Failed to select\n");
             return 0;
-        } 
-
+        }
 
         // Client connecting...
         if (FD_ISSET(socket_disc, &read_fds))
@@ -166,12 +171,12 @@ int main(int argc, char const *argv[])
             {
                 // If the client is successfully logged in then
                 // add them to the read set....
-                if (!login(client_socket, &client_addr))
+                if (login(client_socket, &client_addr) < 0)
                 {
                     close(client_socket);
                 }
                 else{
-
+                    fprintf(stderr, "Logged in user\n\n");
                 }
             }
         }
@@ -184,15 +189,21 @@ int main(int argc, char const *argv[])
             {
                 int client_socket = client_sockets[i];
 
-                // If the client socket is set and in the read set then 
+                // If the client socket is set and in the read set then
                 // execute the given command
                 if (client_socket != -1 && FD_ISSET(client_socket, &read_fds))
                 {
 
-                    char buffer[BUFFER_SIZE];
-                    memset(buffer, '\0', BUFFER_SIZE);
-                    recv(client_socket, buffer, BUFFER_SIZE, 0);
+                    char buffer[2 * BUFFER_SIZE];
+                    memset(buffer, '\0', 2 * BUFFER_SIZE);
+                    if(recv(client_socket, buffer, 2 * BUFFER_SIZE, 0) < 0){
+                        break;
+                    }
 
+                    if (buffer[0] == '\0'){
+                        break;
+                    }
+                    
                     struct message client_request;
                     parseBuffer(buffer, &client_request);
 
@@ -212,30 +223,48 @@ int main(int argc, char const *argv[])
                         break;
                     }
 
-                    else if (client_request.type == LEAVE_SESS){
+                    else if (client_request.type == LEAVE_SESS)
+                    {
                         fprintf(stderr, "%s is leaving session %s\n", client_request.source, client_request.data);
                         int user_id = getUser(client_request.source);
                         leaveClientSession(client_request.data, client_socket, &clients[user_id]);
                         break;
                     }
 
-                    else if(client_request.type == QUERY){
+                    else if (client_request.type == QUERY)
+                    {
                         fprintf(stderr, "Getting list of active clients and sessions\n");
                         query(client_socket);
                         break;
                     }
 
-                    else if(client_request.type == LOGOUT){
+                    else if (client_request.type == LOGOUT)
+                    {
                         fprintf(stderr, "Logging out user %s\n", client_request.source);
                         int user_id = getUser(client_request.source);
                         logoutClient(client_socket, &clients[user_id]);
                         break;
                     }
 
-                    else if(client_request.type == MESSAGE){
+                    else if (client_request.type == MESSAGE)
+                    {
                         fprintf(stderr, "Forwarding message %s\n", client_request.data);
                         int user_id = getUser(client_request.source);
                         sendSessionMSG(client_socket, &clients[user_id], client_request.data);
+                        break;
+                    }
+
+                    else if (client_request.type == NEW_INV){
+                        fprintf(stderr, "Inviting %s to %s\n", client_request.data, client_request.session);
+                        int user_id = getUser(client_request.data);
+
+                        if(user_id == -1){
+                            // User does not exist...
+                            break;
+                        }
+
+                        inviteUserToSession(client_socket, &clients[user_id], client_request.session, client_request.data);
+                        
                         break;
                     }
                 }

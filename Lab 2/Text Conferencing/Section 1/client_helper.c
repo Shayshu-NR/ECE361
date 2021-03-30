@@ -107,7 +107,7 @@ void login(char *PtoS, int socket)
     // fprintf(stderr, "%s\n", PtoS);
 
     // Now send the segment
-    if (send(socket, PtoS, MAX_MSG, 0) < 0)
+    if (send(socket, PtoS, strlen(PtoS), 0) < 0)
     {
         fprintf(stderr, "Send login error\n");
         return;
@@ -139,9 +139,10 @@ void login(char *PtoS, int socket)
 // Log the user out of the server
 void logout(char *PtoS, int socket)
 {
+    fprintf(stderr, "Logging out %s\n", client_id);
     createSegment(PtoS, LOGOUT);
     // Now send the segment
-    if (send(socket, PtoS, MAX_MSG, 0) < 0)
+    if (send(socket, PtoS, strlen(PtoS), 0) < 0)
     {
         fprintf(stderr, "Send login error\n");
         return;
@@ -218,7 +219,7 @@ void createSession(char *PtoS, int socket)
     createSegment(PtoS, NEW_SESS);
 
     // Now send the segment
-    if (send(socket, PtoS, MAX_MSG, 0) < 0)
+    if (send(socket, PtoS, strlen(PtoS), 0) < 0)
     {
         fprintf(stderr, "Send login error\n");
         return;
@@ -239,7 +240,7 @@ void createSession(char *PtoS, int socket)
     // successfully created
     struct message server_res;
     parseBuffer(ACK, &server_res);
-    if (strcmp(server_res.data, session_name) >= 0)
+    if (strcmp(server_res.data, session_name) == 0)
     {
         fprintf(stderr, "Created session %s\n", session_name);
 
@@ -250,10 +251,12 @@ void createSession(char *PtoS, int socket)
     else
     {
         fprintf(stderr, "Failed to create session, try again\n");
+        memset(current_session, '\0', MAX_SESSION);
         session_id = -1;
     }
     return;
 }
+
 
 void leaveSession(char *PtoS, int socket, char *session_name)
 {
@@ -265,7 +268,7 @@ void leaveSession(char *PtoS, int socket, char *session_name)
     // fprintf(stderr, "%s\n", PtoS);
 
     // Now send the segment
-    if (send(socket, PtoS, MAX_MSG, 0) < 0)
+    if (send(socket, PtoS, strlen(PtoS), 0) < 0)
     {
         fprintf(stderr, "Send login error\n");
         return;
@@ -275,6 +278,7 @@ void leaveSession(char *PtoS, int socket, char *session_name)
     memset(current_session, '\0', MAX_SESSION);
     return;
 }
+
 
 void list(char *PtoS, int socket)
 {
@@ -286,7 +290,7 @@ void list(char *PtoS, int socket)
     // fprintf(stderr, "%s\n", PtoS);
 
     //Now send the segment
-    if (send(socket, PtoS, MAX_MSG, 0) < 0)
+    if (send(socket, PtoS, strlen(PtoS), 0) < 0)
     {
         fprintf(stderr, "Send login error\n");
         return;
@@ -313,6 +317,7 @@ void list(char *PtoS, int socket)
 
     return;
 }
+
 
 void sendMessage(char *PtoS, int socket, char *msg)
 {
