@@ -13,6 +13,7 @@
 #define MAX_WAIT_TIME 1
 #define MAX_ID 20
 #define STDIN 0
+#define TIMEOUT_SEC 30
 
 struct message {
     uint32_t type;
@@ -27,11 +28,11 @@ struct login {
 };
 
 enum control_types {
-    LOGON, LO_ACK, LO_NAK, EXIT, JOIN, JN_ACK, JN_NAK, LEAVE_SESS, NEW_SESS, NS_ACK, MESSAGE, QUERY, QU_ACK
+    LOGON, LO_ACK, LO_NAK, EXIT, JOIN, JN_ACK, JN_NAK, LEAVE_SESS, NEW_SESS, NS_ACK, MESSAGE, QUERY, QU_ACK, INV_SEND, INV_ACK, INV_NAK, INV_RECV, TIMEOUT
 };
 
 enum client_command {
-    LOGIN, LOGOUT, JOINSESSION, LEAVESESSION, CREATSESSION, LIST, QUIT, TEXT, NONE
+    LOGIN, LOGOUT, JOINSESSION, LEAVESESSION, CREATSESSION, LIST, QUIT, TEXT, INV, ACCEPT, REJECT
 };
 
 /*an instance of a session, has a list of clients_id belonging to the session
@@ -52,6 +53,7 @@ struct client {
     char ip_addr [INET_ADDRSTRLEN];
     int port;
     uint32_t sessions [MAX_SESSIONS];
+    time_t most_recent_cmd;
 };
 
 #endif

@@ -13,6 +13,7 @@
 #include <signal.h>
 #include <fcntl.h>
 #include "structs.h"
+#include <time.h>
 
 /*create a list of clients and store on server*/
 struct login logins [MAX_CLIENTS]={0};
@@ -35,6 +36,7 @@ int leave_session(struct session* sessions, struct client* clients, uint32_t ses
 void broadcast_msg(struct session* sessions, struct client* clients, int client_sockfd, 
     uint32_t session_index, struct message* message);
 void query_sessions(struct session* sessions, struct client* clients, int client_sockfd, struct message* message);
+void check_client_timeouts(struct client* clients, struct session* sessions);
 
 /*Read from a file to update list of clients, returns 0 if successful, -1 otherwise*/
 int read_passwords (){
@@ -70,7 +72,7 @@ int get_client_index(char* client_id, struct client* clients){
 /*Helper function that returns index of the session id (string), returns -1 if not found.*/
 int get_session_index(char* session_id, struct session* sessions){
     for (int i=0;i<MAX_SESSIONS;i++){
-        if (strncmp(session_id, sessions[i].session_id, MAX_ID)){
+        if (strncmp(session_id, sessions[i].session_id, MAX_ID)==0){
             return i;
         }
     }
@@ -180,6 +182,13 @@ int receive_message(int client_sockfd, struct client* clients, struct session* s
     if (verbose){
         printf("Message received: %s\n", buf);
     }
+    for (int i=0;i<MAX_CLIENTS;i++){
+        /*Update most recent cmd time*/
+        if (clients[i].sockfd == client_sockfd){
+            clients[i].most_recent_cmd = time(NULL);
+            break;
+        }
+    }
     if (numbytes>0){
         decode_message(buf, client_sockfd, clients, sessions);
     }
@@ -195,7 +204,8 @@ int decode_message(char* buf, int client_sockfd, struct client* clients, struct 
         printf("Error decoding message!\n");
         return -1;
     }
-    char* client_id, *session_id;
+    char* client_id, *session_id; 
+    char extra_arg[MAX_DATA];
     uint32_t client_index, session_index;
     struct message new_message;
     char empty_string[] = "";
@@ -257,20 +267,21 @@ int decode_message(char* buf, int client_sockfd, struct client* clients, struct 
             client_index = get_client_index(client_id, clients);
             session_index = get_session_index(session_id, sessions);
             if (client_index==-1||session_index==-1){
+                new_message.type = JN_NAK;
                 strcpy(data_string, "Invalid Client ID or Session ID");
             } else {
                 result = join_session(sessions, clients, session_index, client_index);
                 if (result<0){
-                /*join session failed*/
-                new_message.type = JN_NAK;
-                if (result==-1){
-                    strcpy(data_string, "Client already in session. Session ID:");
-                } else if (result==-2){
-                    strcpy(data_string, "Session has no more spaces. Session ID:");
-                } else {
-                    strcpy(data_string, "Client cannot join any more sessions. Session ID:");
-                }
-                strcat(data_string,(char*)message.data);
+                    /*join session failed*/
+                    new_message.type = JN_NAK;
+                    if (result==-1){
+                        strcpy(data_string, "Client already in session. Session ID:");
+                    } else if (result==-2){
+                        strcpy(data_string, "Session has no more spaces. Session ID:");
+                    } else {
+                        strcpy(data_string, "Client cannot join any more sessions. Session ID:");
+                    }
+                    strcat(data_string,(char*)message.data);
                 } else {
                     /*join session succeeded*/
                     new_message.type = JN_ACK;
@@ -292,7 +303,7 @@ int decode_message(char* buf, int client_sockfd, struct client* clients, struct 
             client_index = get_client_index(client_id, clients);
             session_index = get_session_index(session_id, sessions);
             if (client_index==-1||session_index==-1){
-                strcpy(data_string, "Invalid Client ID or Session ID");
+                //do nothing because we dont send a message back
             } else {
                 result = leave_session(sessions, clients, session_index, client_index);
                 if (result==-1){
@@ -333,11 +344,7 @@ int decode_message(char* buf, int client_sockfd, struct client* clients, struct 
                 return -1;
             }
             session_id = malloc(sizeof(char)*MAX_ID);
-            rv = sscanf(buf, "%s%*c%[^\n]", session_id, message.data);
-            if (rv<2){
-                printf("Error decoding message!\n");
-                return -1;
-            }
+            sscanf((char*)message.data, "%s", session_id);
             if ((session_index = get_session_index(session_id, sessions))!=-1){
                 broadcast_msg(sessions, clients, client_sockfd, session_index, &message);
             }
@@ -345,6 +352,39 @@ int decode_message(char* buf, int client_sockfd, struct client* clients, struct 
             break;
         case QUERY:
             query_sessions(sessions, clients, client_sockfd, &message);
+            break;
+        case INV_SEND:
+            if (rv<4){
+                printf("Error decoding message!\n");
+                return -1;
+            }
+            session_id = malloc(sizeof(char)*MAX_ID);
+            rv = sscanf((char*)message.data, "%s%s", extra_arg,session_id);
+            if (rv<2){
+                printf("Error decoding message!\n");
+                return -1;
+            }
+            if (((client_index=get_client_index(extra_arg, clients))!=-1)&&(get_session_index(session_id, sessions)!=-1)){
+                /*Invite recipient and session both exist*/
+                new_message.type = INV_RECV;
+                strcpy(data_string, (char*)message.data);
+                new_message.size = strlen(data_string);
+                strncpy((char*)new_message.source, (char*)message.source, MAX_NAME);
+                strncpy((char*)new_message.data, data_string, MAX_DATA);
+                send_message(clients[client_index].sockfd, new_message);
+
+                new_message.type = INV_ACK;
+                send_message(client_sockfd, new_message);
+            } else {
+                /*Failed*/
+                new_message.type = INV_NAK;
+                strcpy(data_string, "Client or session does not exist.");
+                new_message.size = strlen(data_string);
+                strncpy((char*)new_message.source, (char*)message.source, MAX_NAME);
+                strncpy((char*)new_message.data, data_string, MAX_DATA);
+                send_message(client_sockfd, new_message);
+            }
+            free(session_id);
             break;
         default:
             printf("Error decoding message!\n");
@@ -363,6 +403,7 @@ int add_client(struct client* clients, int sockfd, char* ip_addr, int port) {
             strncpy(clients[i].ip_addr, ip_addr, INET_ADDRSTRLEN);
             clients[i].port = port;
             memset(clients[i].sessions, -1, sizeof(uint32_t)*MAX_SESSIONS);
+            clients[i].most_recent_cmd = time(NULL);
             return 0;
         }
     }
@@ -471,7 +512,7 @@ void broadcast_msg(struct session* sessions, struct client* clients, int client_
     struct message new_message;
     char data_string[MAX_DATA];
     int client_index = get_client_index(client_id, clients);
-    if (client_index!=-1){
+    if (client_index==-1){
         strcpy(data_string, "Client does not exist.");
     } else {
         for (int i=0;i<MAX_SESSIONS;i++){//find session in client
@@ -493,11 +534,34 @@ void broadcast_msg(struct session* sessions, struct client* clients, int client_
     }
     new_message.type = MESSAGE;
     new_message.size = strlen(data_string);
-    strncpy((char*)new_message.source, (char*)message->source, MAX_NAME);
+    strncpy((char*)new_message.source, "SERVER", MAX_NAME);
     strncpy((char*)new_message.data, data_string, MAX_DATA);
     send_message(client_sockfd, new_message);
     return;
 }
+
+void check_client_timeouts(struct client* clients, struct session* sessions){
+    for (int i=0;i<MAX_CLIENTS;i++){
+        if (strncmp(clients[i].client_id,"", MAX_ID)!=0){
+            if (time(NULL)-clients[i].most_recent_cmd>TIMEOUT_SEC){
+                if (verbose){
+                    printf("User: %s timed out\n", clients[i].client_id);
+                }
+                /*Send client timeout message*/
+                struct message message;
+                message.type = TIMEOUT;
+                strcpy((char*)message.data, "");
+                message.size = strlen((char*)message.data);
+                strncpy((char*)message.source, "SERVER", MAX_NAME);
+                send_message(clients[i].sockfd, message);
+                /*Remove client*/
+                remove_client(clients, sessions, clients[i].sockfd);
+                close(clients[i].sockfd);
+            }
+        }
+    }
+}
+
 
 /*Creates and sends a message with 
 all the clients and sessions and the clients in those session, EDITED*/
@@ -607,6 +671,8 @@ int main(int argc, char *argv[]){
                 } //check if sockfd received messages
             } 
         }//check all clients
+        /*client timeouts*/
+        check_client_timeouts(clients, sessions);
     } //infinite loop
     close(accept_sockfd);
     return 0;
