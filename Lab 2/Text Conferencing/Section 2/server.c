@@ -10,9 +10,9 @@
 #include <stdbool.h>
 #include <arpa/inet.h>
 #include "server_helper.h"
-// /login Bob Jim 128.100.13.227 1789
-// /login Shayshu password 128.100.13.227 1789
-// /login Hamid ece361 128.100.13.227 1789
+// /login Bob Jim 128.100.13.246 1789
+// /login Shayshu password 128.100.13.246 1789
+// /login Hamid ece361 128.100.13.246 1789
 
 int main(int argc, char const *argv[])
 {

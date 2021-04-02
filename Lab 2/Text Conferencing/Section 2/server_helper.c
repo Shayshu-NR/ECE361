@@ -520,7 +520,7 @@ void sendSessionMSG(int socket, struct user *sender, char *msg)
             char ACK[BUFFER_SIZE];
             memset(ACK, '\0', BUFFER_SIZE);
             int size = strlen(msg);
-            sprintf(ACK, "%d:%d:%s:%s", MESSAGE, size, sender->name, msg);
+            sprintf(ACK, "%d:%d:%s:%s:%s", MESSAGE, size, sender->name, sender->chatRoom[j]->name, msg);
 
             for (int i = 0; i < MAX_USERS; i++)
             {
@@ -531,9 +531,13 @@ void sendSessionMSG(int socket, struct user *sender, char *msg)
 
                     int user_id = users_in_session[i];
 
-                    send(clients[user_id].sockfd, ACK, strlen(ACK), 0);
+                    if (send(clients[user_id].sockfd, ACK, strlen(ACK), 0) < 0){
+                        return;
+                    }
                 }
             }
+
+            usleep(1000);
         }
     }
     return;

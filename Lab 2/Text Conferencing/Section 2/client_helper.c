@@ -5,6 +5,7 @@
 #include <netdb.h>
 #include <string.h>
 #include <time.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <stdbool.h>
 #include "client_helper.h"
@@ -98,7 +99,7 @@ void parseBuffer(char *buffer, struct message *cmd)
     token = strtok(NULL, ":");
     strcpy(cmd->source, token);
 
-    if(cmd->type == NEW_INV){
+    if(cmd->type == NEW_INV || cmd->type == MESSAGE){
         token = strtok(NULL, ":");
         strcpy(cmd->session, token);
     }
@@ -267,7 +268,6 @@ void createSession(char *PtoS, int socket)
 
     // Create a segment to create a new session
     createSegment(PtoS, NEW_SESS);
-
     // Now send the segment
     if (send(socket, PtoS, strlen(PtoS), 0) < 0)
     {
@@ -341,6 +341,12 @@ void leaveSession(char *PtoS, int socket, char *leave)
 
     fprintf(stderr, "Left %s\n", leave);
     memset(current_session[leave_session_index], '\0', MAX_SESSION);
+    char * temp = current_session[leave_session_index];
+
+    for (int i = 1; i < MAX_SESSIONS; i++){
+        strcpy(current_session[i - 1], current_session[i]);
+    }
+    memset(current_session[MAX_SESSIONS - 1], '\0', MAX_SESSION);
 
     return;
 }
